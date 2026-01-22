@@ -13,6 +13,8 @@ export interface SalarySlipData {
   pf: number;
   tax: number;
   otherDeductions: number;
+  logoBase64?: string;
+  signatureBase64?: string;
 }
 
 export function generateSalarySlipPDF(data: SalarySlipData): void {
@@ -23,9 +25,18 @@ export function generateSalarySlipPDF(data: SalarySlipData): void {
   const totalDeductions = data.pf + data.tax + data.otherDeductions;
   const netSalary = grossSalary - totalDeductions;
 
-  // Header
+  // Header with optional logo
   doc.setFillColor(20, 128, 128);
   doc.rect(0, 0, 210, 40, 'F');
+  
+  // Add logo if provided
+  if (data.logoBase64) {
+    try {
+      doc.addImage(data.logoBase64, 'PNG', 15, 5, 30, 30);
+    } catch (e) {
+      console.error('Error adding logo:', e);
+    }
+  }
   
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(22);
@@ -130,14 +141,39 @@ export function generateSalarySlipPDF(data: SalarySlipData): void {
   doc.text('NET SALARY', 25, yPos + 13);
   doc.text(`₹ ${netSalary.toLocaleString('en-IN')}`, 185, yPos + 13, { align: 'right' });
 
+  // Signature section
+  yPos = 210;
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  
+  if (data.signatureBase64) {
+    try {
+      doc.addImage(data.signatureBase64, 'PNG', 140, yPos - 15, 40, 20);
+      doc.line(135, yPos + 8, 185, yPos + 8);
+      doc.text('Authorized Signatory', 160, yPos + 15, { align: 'center' });
+    } catch (e) {
+      console.error('Error adding signature:', e);
+    }
+  }
+
   // Footer
   doc.setTextColor(100, 100, 100);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'italic');
-  doc.text('This is a computer-generated document. No signature required.', 105, 220, { align: 'center' });
-  doc.text(`Generated on ${new Date().toLocaleString('en-IN')}`, 105, 228, { align: 'center' });
+  doc.text('This is a computer-generated document. No signature required.', 105, 260, { align: 'center' });
+  doc.text(`Generated on ${new Date().toLocaleString('en-IN')}`, 105, 268, { align: 'center' });
 
   // Save PDF
   const fileName = `Salary_Slip_${data.employeeName.replace(/\s+/g, '_')}_${data.month}_${data.year}.pdf`;
   doc.save(fileName);
 }
+
+export const essentialRequirements = [
+  '📋 Keep your PAN card and Aadhaar ready for verification',
+  '🏦 Bank statement for the last 6 months may be required',
+  '📄 Employment letter from current employer',
+  '💼 Form 16 or ITR for the relevant financial year',
+  '📝 NOC from employer if required by visa authorities',
+  '🔢 Salary account details matching with employer records',
+];

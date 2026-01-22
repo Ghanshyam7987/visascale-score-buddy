@@ -35,6 +35,39 @@ export type Database = {
         }
         Relationships: []
       }
+      itineraries: {
+        Row: {
+          country: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          pdf_url: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          country: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          pdf_url: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          pdf_url?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       payments: {
         Row: {
           amount: number
@@ -104,6 +137,45 @@ export type Database = {
           subscription_status?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      upcoming_events: {
+        Row: {
+          country: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          event_date: string | null
+          id: string
+          is_active: boolean | null
+          location: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          event_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          location?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          event_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          location?: string | null
+          title?: string
+          updated_at?: string
         }
         Relationships: []
       }

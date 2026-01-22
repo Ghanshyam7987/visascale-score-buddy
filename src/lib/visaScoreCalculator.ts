@@ -1,126 +1,283 @@
-// VisaScore Calculation Logic
-// Maximum score is capped at 99
+// VisaScore Calculation Logic - Country-Specific Scoring
+// Maximum score varies by country, capped at specified limits
 
 export interface VisaScoreInput {
   country: string;
   purpose: 'tourist' | 'business' | 'student' | 'work';
-  travelHistory: boolean;
-  financialStrength: 'low' | 'medium' | 'high';
-  employmentType: 'salaried' | 'self_employed' | 'business';
-  bankBalanceRange: 'low' | 'medium' | 'high';
-  hasSponsor: boolean;
+  travelHistoryTier1: boolean; // Australia, NZ, US, Canada, UK, Schengen
+  travelHistoryTier2: boolean; // Japan, South Africa, South Korea, Brazil
+  travelHistoryTier3: boolean; // Thailand, Singapore, Malaysia, HK-Macau, China, Vietnam, Azerbaijan, other Asian
+  yearlyIncome: 'below_3lac' | '3_to_5lac' | '5_to_10lac' | '10_to_17lac' | 'above_17lac';
 }
 
-export interface VisaScoreWeights {
-  travel_history: number;
-  financial_strength_high: number;
-  financial_strength_medium: number;
-  financial_strength_low: number;
-  employment_salaried: number;
-  employment_self_employed: number;
-  employment_business: number;
-  bank_balance_high: number;
-  bank_balance_medium: number;
-  bank_balance_low: number;
-  has_sponsor: number;
-  purpose_tourist: number;
-  purpose_business: number;
-  purpose_student: number;
-  purpose_work: number;
+export interface CountryScoreConfig {
+  maxScore: number;
+  baseScore: number;
+  tier1Bonus: number;
+  tier2Bonus: number;
+  tier3Bonus: number;
+  incomeScores: {
+    below_3lac: number;
+    '3_to_5lac': number;
+    '5_to_10lac': number;
+    '10_to_17lac': number;
+    above_17lac: number;
+  };
 }
 
-export const defaultWeights: VisaScoreWeights = {
-  travel_history: 20,
-  financial_strength_high: 25,
-  financial_strength_medium: 15,
-  financial_strength_low: 5,
-  employment_salaried: 15,
-  employment_self_employed: 12,
-  employment_business: 18,
-  bank_balance_high: 15,
-  bank_balance_medium: 10,
-  bank_balance_low: 5,
-  has_sponsor: 10,
-  purpose_tourist: 5,
-  purpose_business: 10,
-  purpose_student: 8,
-  purpose_work: 12,
+// Country-specific scoring configurations
+export const countryConfigs: Record<string, CountryScoreConfig> = {
+  'United States of America': {
+    maxScore: 90,
+    baseScore: 40,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 1,
+      '5_to_10lac': 5,
+      '10_to_17lac': 10,
+      above_17lac: 15,
+    },
+  },
+  'Canada': {
+    maxScore: 95,
+    baseScore: 45,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 1,
+      '5_to_10lac': 5,
+      '10_to_17lac': 10,
+      above_17lac: 15,
+    },
+  },
+  'United Kingdom': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 19,
+      above_17lac: 24,
+    },
+  },
+  'Schengen Area': {
+    maxScore: 95,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 18,
+      above_17lac: 24,
+    },
+  },
+  'Australia': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 21,
+      above_17lac: 24,
+    },
+  },
+  'New Zealand': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 21,
+      above_17lac: 24,
+    },
+  },
+  'Japan': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'South Africa': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'South Korea': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'Brazil': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'Switzerland': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'France': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'Turkey': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'Ireland': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 22,
+      above_17lac: 24,
+    },
+  },
+  'Other European Countries': {
+    maxScore: 99,
+    baseScore: 50,
+    tier1Bonus: 20,
+    tier2Bonus: 10,
+    tier3Bonus: 5,
+    incomeScores: {
+      below_3lac: 0,
+      '3_to_5lac': 5,
+      '5_to_10lac': 10,
+      '10_to_17lac': 20,
+      above_17lac: 24,
+    },
+  },
+};
+
+// Default config for unlisted countries
+const defaultConfig: CountryScoreConfig = {
+  maxScore: 99,
+  baseScore: 50,
+  tier1Bonus: 20,
+  tier2Bonus: 10,
+  tier3Bonus: 5,
+  incomeScores: {
+    below_3lac: 0,
+    '3_to_5lac': 5,
+    '5_to_10lac': 10,
+    '10_to_17lac': 20,
+    above_17lac: 24,
+  },
 };
 
 export function calculateVisaScore(
-  input: VisaScoreInput,
-  weights: VisaScoreWeights = defaultWeights
+  input: VisaScoreInput
 ): { score: number; category: 'Low' | 'Medium' | 'High' } {
-  let score = 0;
-
-  // Travel History
-  if (input.travelHistory) {
-    score += weights.travel_history;
+  const config = countryConfigs[input.country] || defaultConfig;
+  
+  // Start with base score
+  let score = config.baseScore;
+  
+  // Add travel history bonus (only highest tier counts - mutually exclusive)
+  if (input.travelHistoryTier1) {
+    score += config.tier1Bonus;
+  } else if (input.travelHistoryTier2) {
+    score += config.tier2Bonus;
+  } else if (input.travelHistoryTier3) {
+    score += config.tier3Bonus;
   }
-
-  // Financial Strength
-  switch (input.financialStrength) {
-    case 'high':
-      score += weights.financial_strength_high;
-      break;
-    case 'medium':
-      score += weights.financial_strength_medium;
-      break;
-    case 'low':
-      score += weights.financial_strength_low;
-      break;
-  }
-
-  // Employment Type
-  switch (input.employmentType) {
-    case 'salaried':
-      score += weights.employment_salaried;
-      break;
-    case 'self_employed':
-      score += weights.employment_self_employed;
-      break;
-    case 'business':
-      score += weights.employment_business;
-      break;
-  }
-
-  // Bank Balance Range
-  switch (input.bankBalanceRange) {
-    case 'high':
-      score += weights.bank_balance_high;
-      break;
-    case 'medium':
-      score += weights.bank_balance_medium;
-      break;
-    case 'low':
-      score += weights.bank_balance_low;
-      break;
-  }
-
-  // Sponsor/Invitation
-  if (input.hasSponsor) {
-    score += weights.has_sponsor;
-  }
-
-  // Purpose of Travel
-  switch (input.purpose) {
-    case 'tourist':
-      score += weights.purpose_tourist;
-      break;
-    case 'business':
-      score += weights.purpose_business;
-      break;
-    case 'student':
-      score += weights.purpose_student;
-      break;
-    case 'work':
-      score += weights.purpose_work;
-      break;
-  }
-
-  // Cap at 99
-  score = Math.min(score, 99);
-
+  
+  // Add income bonus
+  score += config.incomeScores[input.yearlyIncome] || 0;
+  
+  // Cap at country's max score
+  score = Math.min(score, config.maxScore);
+  
   // Determine category
   let category: 'Low' | 'Medium' | 'High';
   if (score < 40) {
@@ -130,7 +287,7 @@ export function calculateVisaScore(
   } else {
     category = 'High';
   }
-
+  
   return { score, category };
 }
 
@@ -139,48 +296,87 @@ export function getApprovalSuggestions(
   score: number
 ): string[] {
   const suggestions: string[] = [];
-
-  if (!input.travelHistory) {
+  
+  if (!input.travelHistoryTier1 && !input.travelHistoryTier2 && !input.travelHistoryTier3) {
     suggestions.push('Build travel history by visiting visa-free or e-visa countries first');
+  } else if (!input.travelHistoryTier1 && input.travelHistoryTier3) {
+    suggestions.push('Travel to Tier 1 countries (US, UK, Canada, Schengen, Australia, NZ) to boost your score significantly');
+  } else if (!input.travelHistoryTier1 && input.travelHistoryTier2) {
+    suggestions.push('Consider traveling to Tier 1 destinations for maximum travel history bonus');
   }
-
-  if (input.financialStrength !== 'high') {
-    suggestions.push('Improve your financial documentation with higher bank balance and stable income proof');
+  
+  if (input.yearlyIncome === 'below_3lac' || input.yearlyIncome === '3_to_5lac') {
+    suggestions.push('Increasing your documented yearly income above ₹10 Lakhs significantly improves approval chances');
+  } else if (input.yearlyIncome === '5_to_10lac') {
+    suggestions.push('Income above ₹17 Lakhs provides the highest income bonus for visa approval');
   }
-
-  if (input.bankBalanceRange !== 'high') {
-    suggestions.push('Maintain higher bank balance for at least 6 months before applying');
-  }
-
-  if (!input.hasSponsor) {
-    suggestions.push('Consider getting a sponsor or invitation letter from the destination country');
-  }
-
-  if (input.employmentType === 'self_employed') {
-    suggestions.push('Provide strong business documentation including ITR, GST returns, and company registration');
-  }
-
+  
   if (score < 50) {
-    suggestions.push('Consider applying to countries with easier visa requirements first');
+    suggestions.push('Consider applying to countries with easier visa requirements first to build travel history');
     suggestions.push('Prepare comprehensive documentation including travel itinerary and hotel bookings');
   }
-
-  if (suggestions.length === 0) {
-    suggestions.push('Your profile looks strong! Ensure all documents are accurate and complete');
+  
+  if (score >= 70) {
+    suggestions.push('Your profile looks strong! Ensure all documents are accurate, complete, and match your application');
   }
-
-  return suggestions.slice(0, 4); // Return max 4 suggestions
+  
+  if (suggestions.length === 0) {
+    suggestions.push('Maintain strong financial documentation and consistent travel patterns');
+  }
+  
+  return suggestions.slice(0, 4);
 }
 
 export const popularCountries = [
-  'United States',
-  'United Kingdom',
+  'United States of America',
   'Canada',
+  'United Kingdom',
+  'Schengen Area',
   'Australia',
-  'Schengen (Europe)',
-  'Japan',
-  'Singapore',
-  'UAE (Dubai)',
   'New Zealand',
+  'Japan',
+  'South Africa',
   'South Korea',
+  'Brazil',
+  'Switzerland',
+  'France',
+  'Turkey',
+  'Ireland',
+  'Other European Countries',
+];
+
+export const tier1Countries = [
+  'Australia',
+  'New Zealand',
+  'United States',
+  'Canada',
+  'United Kingdom',
+  'Schengen',
+];
+
+export const tier2Countries = [
+  'Japan',
+  'South Africa',
+  'South Korea',
+  'Brazil',
+];
+
+export const tier3Countries = [
+  'Thailand',
+  'Singapore',
+  'Malaysia',
+  'Hong Kong',
+  'Macau',
+  'China',
+  'Vietnam',
+  'Azerbaijan',
+  'Other Asian Countries',
+];
+
+export const incomeRanges = [
+  { value: 'below_3lac', label: 'Below ₹3 Lakhs' },
+  { value: '3_to_5lac', label: '₹3 - 5 Lakhs' },
+  { value: '5_to_10lac', label: '₹5 - 10 Lakhs' },
+  { value: '10_to_17lac', label: '₹10 - 17 Lakhs' },
+  { value: 'above_17lac', label: 'Above ₹17 Lakhs' },
 ];
