@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { User, Briefcase, Building2, Calendar, DollarSign, Download, Loader2 } from 'lucide-react';
+import { User, Briefcase, Building2, Calendar, DollarSign, Download, Loader2, Upload, Image, PenTool, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { generateSalarySlipPDF, SalarySlipData } from '@/lib/salarySlipGenerator';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { generateSalarySlipPDF, SalarySlipData, essentialRequirements } from '@/lib/salarySlipGenerator';
 import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 
 const months = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -15,11 +17,16 @@ const months = [
 ];
 
 const currentYear = new Date().getFullYear();
-const years = Array.from({ length: 5 }, (_, i) => (currentYear - i).toString());
+const years = Array.from({ length: 10 }, (_, i) => (currentYear - i).toString());
 
 export function SalarySlipForm() {
-  const { toast } = useToast();
+  const { toast: toastHook } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const signatureInputRef = useRef<HTMLInputElement>(null);
+  
   const [formData, setFormData] = useState<SalarySlipData>({
     employeeName: '',
     designation: '',
@@ -42,9 +49,37 @@ export function SalarySlipForm() {
     }));
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'signature') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('File size should be less than 2MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (type === 'logo') {
+        setLogoPreview(base64);
+        handleInputChange('logoBase64', base64);
+      } else {
+        setSignaturePreview(base64);
+        handleInputChange('signatureBase64', base64);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleGeneratePDF = () => {
     if (!formData.employeeName || !formData.designation) {
-      toast({
+      toastHook({
         title: 'Missing Information',
         description: 'Please fill in employee name and designation.',
         variant: 'destructive',
@@ -58,12 +93,12 @@ export function SalarySlipForm() {
     setTimeout(() => {
       try {
         generateSalarySlipPDF(formData);
-        toast({
+        toastHook({
           title: 'PDF Generated!',
           description: 'Your salary slip has been downloaded.',
         });
       } catch (error) {
-        toast({
+        toastHook({
           title: 'Generation Failed',
           description: 'Could not generate PDF. Please try again.',
           variant: 'destructive',
@@ -79,10 +114,29 @@ export function SalarySlipForm() {
 
   return (
     <div className="space-y-6">
+      {/* Essential Requirements Alert */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <Alert className="border-primary/20 bg-primary/5">
+          <Info className="h-4 w-4 text-primary" />
+          <AlertTitle className="text-primary font-semibold">Essential Requirements for Visa</AlertTitle>
+          <AlertDescription>
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+              {essentialRequirements.map((req, index) => (
+                <li key={index}>{req}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      </motion.div>
+
       {/* Employee Details */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
       >
         <Card>
           <CardHeader>
@@ -131,11 +185,114 @@ export function SalarySlipForm() {
         </Card>
       </motion.div>
 
-      {/* Pay Period */}
+      {/* Logo & Signature Upload */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Image className="h-5 w-5 text-primary" />
+              Branding & Signature
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Logo Upload */}
+            <div className="space-y-2">
+              <Label>Company Logo (Optional)</Label>
+              <input
+                type="file"
+                ref={logoInputRef}
+                accept="image/*"
+                onChange={(e) => handleFileUpload(e, 'logo')}
+                className="hidden"
+              />
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => logoInputRef.current?.click()}
+                  className="touch-target"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload Logo
+                </Button>
+                {logoPreview && (
+                  <div className="relative">
+                    <img 
+                      src={logoPreview} 
+                      alt="Logo preview" 
+                      className="h-12 w-12 object-contain border rounded"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLogoPreview(null);
+                        handleInputChange('logoBase64', '');
+                      }}
+                      className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 text-xs flex items-center justify-center"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">PNG, JPG up to 2MB. Will appear in header.</p>
+            </div>
+
+            {/* Signature Upload */}
+            <div className="space-y-2">
+              <Label>Authorized Signature (Optional)</Label>
+              <input
+                type="file"
+                ref={signatureInputRef}
+                accept="image/*"
+                onChange={(e) => handleFileUpload(e, 'signature')}
+                className="hidden"
+              />
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => signatureInputRef.current?.click()}
+                  className="touch-target"
+                >
+                  <PenTool className="h-4 w-4 mr-2" />
+                  Upload Signature
+                </Button>
+                {signaturePreview && (
+                  <div className="relative">
+                    <img 
+                      src={signaturePreview} 
+                      alt="Signature preview" 
+                      className="h-10 w-20 object-contain border rounded"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignaturePreview(null);
+                        handleInputChange('signatureBase64', '');
+                      }}
+                      className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 text-xs flex items-center justify-center"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Signature image for authorized signatory section.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Pay Period */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
       >
         <Card>
           <CardHeader>
@@ -232,7 +389,7 @@ export function SalarySlipForm() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: 0.25 }}
       >
         <Card>
           <CardHeader>
@@ -276,7 +433,7 @@ export function SalarySlipForm() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
+        transition={{ delay: 0.3 }}
       >
         <Card className="gradient-primary">
           <CardContent className="p-6">
@@ -292,7 +449,7 @@ export function SalarySlipForm() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
+        transition={{ delay: 0.35 }}
       >
         <Button
           onClick={handleGeneratePDF}

@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, Target, Plane, Wallet, Briefcase, Building2, Users, ChevronRight } from 'lucide-react';
+import { Globe, Plane, Wallet, ChevronRight, IndianRupee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Card, CardContent } from '@/components/ui/card';
-import { VisaScoreInput, popularCountries } from '@/lib/visaScoreCalculator';
+import { Checkbox } from '@/components/ui/checkbox';
+import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, incomeRanges } from '@/lib/visaScoreCalculator';
 
 interface VisaScoreFormProps {
   onSubmit: (data: VisaScoreInput) => void;
@@ -15,23 +16,20 @@ interface VisaScoreFormProps {
 
 export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [country, setCountry] = useState('');
-  const [purpose, setPurpose] = useState<VisaScoreInput['purpose']>('tourist');
-  const [travelHistory, setTravelHistory] = useState(false);
-  const [financialStrength, setFinancialStrength] = useState<VisaScoreInput['financialStrength']>('medium');
-  const [employmentType, setEmploymentType] = useState<VisaScoreInput['employmentType']>('salaried');
-  const [bankBalanceRange, setBankBalanceRange] = useState<VisaScoreInput['bankBalanceRange']>('medium');
-  const [hasSponsor, setHasSponsor] = useState(false);
+  const [travelHistoryTier1, setTravelHistoryTier1] = useState(false);
+  const [travelHistoryTier2, setTravelHistoryTier2] = useState(false);
+  const [travelHistoryTier3, setTravelHistoryTier3] = useState(false);
+  const [yearlyIncome, setYearlyIncome] = useState<VisaScoreInput['yearlyIncome']>('below_3lac');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit({
       country,
-      purpose,
-      travelHistory,
-      financialStrength,
-      employmentType,
-      bankBalanceRange,
-      hasSponsor,
+      purpose: 'tourist', // Default to tourist for this scoring system
+      travelHistoryTier1,
+      travelHistoryTier2,
+      travelHistoryTier3,
+      yearlyIncome,
     });
   };
 
@@ -53,143 +51,91 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       ),
     },
     {
-      title: 'Purpose of Travel',
-      icon: Target,
-      content: (
-        <RadioGroup
-          value={purpose}
-          onValueChange={(v) => setPurpose(v as VisaScoreInput['purpose'])}
-          className="grid grid-cols-2 gap-3"
-        >
-          {[
-            { value: 'tourist', label: 'Tourist' },
-            { value: 'business', label: 'Business' },
-            { value: 'student', label: 'Student' },
-            { value: 'work', label: 'Work' },
-          ].map((item) => (
-            <Label
-              key={item.value}
-              className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-                purpose === item.value
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <RadioGroupItem value={item.value} className="sr-only" />
-              <span className="font-medium">{item.label}</span>
-            </Label>
-          ))}
-        </RadioGroup>
-      ),
-    },
-    {
       title: 'Travel History',
       icon: Plane,
+      subtitle: 'Select all that apply (highest tier will be counted)',
       content: (
-        <RadioGroup
-          value={travelHistory ? 'yes' : 'no'}
-          onValueChange={(v) => setTravelHistory(v === 'yes')}
-          className="grid grid-cols-2 gap-3"
-        >
-          <Label
-            className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-              travelHistory
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-primary/50'
-            }`}
-          >
-            <RadioGroupItem value="yes" className="sr-only" />
-            <span className="font-medium">Yes, I have</span>
-          </Label>
-          <Label
-            className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-              !travelHistory
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-primary/50'
-            }`}
-          >
-            <RadioGroupItem value="no" className="sr-only" />
-            <span className="font-medium">No</span>
-          </Label>
-        </RadioGroup>
+        <div className="space-y-4">
+          {/* Tier 1 */}
+          <div className="space-y-2">
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="tier1"
+                checked={travelHistoryTier1}
+                onCheckedChange={(checked) => setTravelHistoryTier1(checked === true)}
+              />
+              <Label 
+                htmlFor="tier1" 
+                className="text-sm font-medium leading-none cursor-pointer flex-1"
+              >
+                <span className="text-primary font-semibold">Tier 1 (+20%)</span>
+                <p className="text-muted-foreground text-xs mt-1">
+                  {tier1Countries.join(', ')}
+                </p>
+              </Label>
+            </div>
+          </div>
+
+          {/* Tier 2 */}
+          <div className="space-y-2">
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="tier2"
+                checked={travelHistoryTier2}
+                onCheckedChange={(checked) => setTravelHistoryTier2(checked === true)}
+              />
+              <Label 
+                htmlFor="tier2" 
+                className="text-sm font-medium leading-none cursor-pointer flex-1"
+              >
+                <span className="text-primary font-semibold">Tier 2 (+10%)</span>
+                <p className="text-muted-foreground text-xs mt-1">
+                  {tier2Countries.join(', ')}
+                </p>
+              </Label>
+            </div>
+          </div>
+
+          {/* Tier 3 */}
+          <div className="space-y-2">
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="tier3"
+                checked={travelHistoryTier3}
+                onCheckedChange={(checked) => setTravelHistoryTier3(checked === true)}
+              />
+              <Label 
+                htmlFor="tier3" 
+                className="text-sm font-medium leading-none cursor-pointer flex-1"
+              >
+                <span className="text-primary font-semibold">Tier 3 (+5%)</span>
+                <p className="text-muted-foreground text-xs mt-1">
+                  {tier3Countries.join(', ')}
+                </p>
+              </Label>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground bg-muted p-2 rounded-md">
+            💡 Only the highest tier bonus will be applied to your score
+          </p>
+        </div>
       ),
     },
     {
-      title: 'Financial Strength',
-      icon: Wallet,
+      title: 'Yearly Income',
+      icon: IndianRupee,
       content: (
         <RadioGroup
-          value={financialStrength}
-          onValueChange={(v) => setFinancialStrength(v as VisaScoreInput['financialStrength'])}
-          className="grid grid-cols-3 gap-3"
-        >
-          {[
-            { value: 'low', label: 'Low' },
-            { value: 'medium', label: 'Medium' },
-            { value: 'high', label: 'High' },
-          ].map((item) => (
-            <Label
-              key={item.value}
-              className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-                financialStrength === item.value
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <RadioGroupItem value={item.value} className="sr-only" />
-              <span className="font-medium">{item.label}</span>
-            </Label>
-          ))}
-        </RadioGroup>
-      ),
-    },
-    {
-      title: 'Employment Type',
-      icon: Briefcase,
-      content: (
-        <RadioGroup
-          value={employmentType}
-          onValueChange={(v) => setEmploymentType(v as VisaScoreInput['employmentType'])}
-          className="grid grid-cols-3 gap-2"
-        >
-          {[
-            { value: 'salaried', label: 'Salaried' },
-            { value: 'self_employed', label: 'Self-Employed' },
-            { value: 'business', label: 'Business' },
-          ].map((item) => (
-            <Label
-              key={item.value}
-              className={`flex items-center justify-center rounded-lg border-2 p-3 cursor-pointer transition-all touch-target text-center ${
-                employmentType === item.value
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <RadioGroupItem value={item.value} className="sr-only" />
-              <span className="font-medium text-sm">{item.label}</span>
-            </Label>
-          ))}
-        </RadioGroup>
-      ),
-    },
-    {
-      title: 'Bank Balance Range',
-      icon: Building2,
-      content: (
-        <RadioGroup
-          value={bankBalanceRange}
-          onValueChange={(v) => setBankBalanceRange(v as VisaScoreInput['bankBalanceRange'])}
+          value={yearlyIncome}
+          onValueChange={(v) => setYearlyIncome(v as VisaScoreInput['yearlyIncome'])}
           className="space-y-3"
         >
-          {[
-            { value: 'low', label: 'Below ₹5 Lakhs' },
-            { value: 'medium', label: '₹5 - 15 Lakhs' },
-            { value: 'high', label: 'Above ₹15 Lakhs' },
-          ].map((item) => (
+          {incomeRanges.map((item) => (
             <Label
               key={item.value}
               className={`flex items-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-                bankBalanceRange === item.value
+                yearlyIncome === item.value
                   ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-primary/50'
               }`}
@@ -198,38 +144,6 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
               <span className="font-medium">{item.label}</span>
             </Label>
           ))}
-        </RadioGroup>
-      ),
-    },
-    {
-      title: 'Sponsor/Invitation',
-      icon: Users,
-      content: (
-        <RadioGroup
-          value={hasSponsor ? 'yes' : 'no'}
-          onValueChange={(v) => setHasSponsor(v === 'yes')}
-          className="grid grid-cols-2 gap-3"
-        >
-          <Label
-            className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-              hasSponsor
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-primary/50'
-            }`}
-          >
-            <RadioGroupItem value="yes" className="sr-only" />
-            <span className="font-medium">Yes</span>
-          </Label>
-          <Label
-            className={`flex items-center justify-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-              !hasSponsor
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-primary/50'
-            }`}
-          >
-            <RadioGroupItem value="no" className="sr-only" />
-            <span className="font-medium">No</span>
-          </Label>
         </RadioGroup>
       ),
     },
@@ -250,7 +164,12 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
                 <div className="p-2 rounded-lg bg-primary/10">
                   <section.icon className="h-5 w-5 text-primary" />
                 </div>
-                <h3 className="font-semibold">{section.title}</h3>
+                <div>
+                  <h3 className="font-semibold">{section.title}</h3>
+                  {section.subtitle && (
+                    <p className="text-xs text-muted-foreground">{section.subtitle}</p>
+                  )}
+                </div>
               </div>
               {section.content}
             </CardContent>

@@ -9,6 +9,8 @@ import Dashboard from "./pages/Dashboard";
 import Calculator from "./pages/Calculator";
 import SalarySlip from "./pages/SalarySlip";
 import Profile from "./pages/Profile";
+import Itineraries from "./pages/Itineraries";
+import Events from "./pages/Events";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,6 +27,8 @@ const App = () => (
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/calculator" element={<Calculator />} />
             <Route path="/salary-slip" element={<SalarySlip />} />
+            <Route path="/itineraries" element={<Itineraries />} />
+            <Route path="/events" element={<Events />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -21,11 +21,11 @@ const Calculator = () => {
         user_id: user.id,
         country: data.country,
         purpose: data.purpose,
-        travel_history: data.travelHistory,
-        financial_strength: data.financialStrength,
-        employment_type: data.employmentType,
-        bank_balance_range: data.bankBalanceRange,
-        has_sponsor: data.hasSponsor,
+        travel_history: data.travelHistoryTier1 || data.travelHistoryTier2 || data.travelHistoryTier3,
+        financial_strength: data.yearlyIncome === 'above_17lac' ? 'high' : data.yearlyIncome === '10_to_17lac' ? 'medium' : 'low',
+        employment_type: 'salaried', // Default
+        bank_balance_range: data.yearlyIncome === 'above_17lac' ? 'high' : data.yearlyIncome === '10_to_17lac' ? 'medium' : 'low',
+        has_sponsor: false,
         visa_score: score,
         approval_category: category,
       });
