@@ -11,6 +11,7 @@ import SalarySlip from "./pages/SalarySlip";
 import Profile from "./pages/Profile";
 import Itineraries from "./pages/Itineraries";
 import Events from "./pages/Events";
+import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,6 +30,7 @@ const App = () => (
             <Route path="/salary-slip" element={<SalarySlip />} />
             <Route path="/itineraries" element={<Itineraries />} />
             <Route path="/events" element={<Events />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
