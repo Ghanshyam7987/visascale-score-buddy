@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Calculator, FileText, TrendingUp, Clock } from 'lucide-react';
+import { Calculator, FileText, TrendingUp, Clock, Map, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -12,6 +12,8 @@ const Dashboard = () => {
   const quickActions = [
     { path: '/calculator', icon: Calculator, title: 'Calculate VisaScore', desc: 'Check your approval chances', color: 'bg-primary/10 text-primary' },
     { path: '/salary-slip', icon: FileText, title: 'Salary Slip', desc: 'Generate PDF salary slip', color: 'bg-accent/10 text-accent' },
+    { path: '/itineraries', icon: Map, title: 'Itineraries', desc: 'Browse travel itineraries', color: 'bg-secondary/10 text-secondary-foreground' },
+    { path: '/events', icon: Calendar, title: 'Upcoming Events', desc: 'Worldwide travel events', color: 'bg-muted text-muted-foreground' },
   ];
 
   return (
