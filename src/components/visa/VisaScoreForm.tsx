@@ -68,7 +68,7 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
                 htmlFor="tier1" 
                 className="text-sm font-medium leading-none cursor-pointer flex-1"
               >
-                <span className="text-primary font-semibold">Tier 1 (+20%)</span>
+                <span className="text-primary font-semibold">Tier 1</span>
                 <p className="text-muted-foreground text-xs mt-1">
                   {tier1Countries.join(', ')}
                 </p>
@@ -88,7 +88,7 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
                 htmlFor="tier2" 
                 className="text-sm font-medium leading-none cursor-pointer flex-1"
               >
-                <span className="text-primary font-semibold">Tier 2 (+10%)</span>
+                <span className="text-primary font-semibold">Tier 2</span>
                 <p className="text-muted-foreground text-xs mt-1">
                   {tier2Countries.join(', ')}
                 </p>
@@ -108,7 +108,7 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
                 htmlFor="tier3" 
                 className="text-sm font-medium leading-none cursor-pointer flex-1"
               >
-                <span className="text-primary font-semibold">Tier 3 (+5%)</span>
+                <span className="text-primary font-semibold">Tier 3</span>
                 <p className="text-muted-foreground text-xs mt-1">
                   {tier3Countries.join(', ')}
                 </p>
