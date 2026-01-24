@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Users, Calculator, FileText, Calendar, TrendingUp, 
-  Shield, Loader2, Trash2, Eye, ToggleLeft 
+  Shield, Loader2, Trash2, Eye, ToggleLeft, UserCheck, UserX,
+  Mail, Phone, CreditCard, CheckCircle, XCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -25,6 +26,7 @@ interface DashboardStats {
   totalCalculations: number;
   totalItineraries: number;
   totalEvents: number;
+  paidRegistrations: number;
 }
 
 interface Itinerary {
@@ -44,6 +46,18 @@ interface Event {
   location: string | null;
 }
 
+interface UserProfile {
+  id: string;
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  subscription_status: string | null;
+  subscription_expires_at: string | null;
+  registration_paid: boolean | null;
+  created_at: string;
+}
+
 const Admin = () => {
   const navigate = useNavigate();
   const { isAdmin, isLoading: authLoading } = useAuth();
@@ -53,7 +67,9 @@ const Admin = () => {
     totalCalculations: 0,
     totalItineraries: 0,
     totalEvents: 0,
+    paidRegistrations: 0,
   });
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,9 +88,9 @@ const Admin = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch stats
+      // Fetch stats and data
       const [profilesRes, calculationsRes, itinerariesRes, eventsRes] = await Promise.all([
-        supabase.from('profiles').select('id, subscription_status'),
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
         supabase.from('visa_score_calculations').select('id'),
         supabase.from('itineraries').select('*').order('created_at', { ascending: false }),
         supabase.from('upcoming_events').select('*').order('event_date', { ascending: true }),
@@ -82,6 +98,7 @@ const Admin = () => {
 
       const profiles = profilesRes.data || [];
       const activeCount = profiles.filter(p => p.subscription_status === 'active').length;
+      const paidCount = profiles.filter(p => p.registration_paid === true).length;
 
       setStats({
         totalUsers: profiles.length,
@@ -89,8 +106,10 @@ const Admin = () => {
         totalCalculations: calculationsRes.data?.length || 0,
         totalItineraries: itinerariesRes.data?.length || 0,
         totalEvents: eventsRes.data?.length || 0,
+        paidRegistrations: paidCount,
       });
 
+      setUsers(profiles);
       setItineraries(itinerariesRes.data || []);
       setEvents(eventsRes.data || []);
     } catch (error) {
@@ -177,9 +196,10 @@ const Admin = () => {
 
   const statCards = [
     { label: 'Total Users', value: stats.totalUsers, icon: Users, color: 'text-primary' },
-    { label: 'Active Subscriptions', value: stats.activeSubscriptions, icon: TrendingUp, color: 'text-emerald-500' },
+    { label: 'Paid Registrations', value: stats.paidRegistrations, icon: CreditCard, color: 'text-emerald-500' },
+    { label: 'Active Subscriptions', value: stats.activeSubscriptions, icon: TrendingUp, color: 'text-blue-500' },
     { label: 'Visa Calculations', value: stats.totalCalculations, icon: Calculator, color: 'text-accent' },
-    { label: 'Itineraries', value: stats.totalItineraries, icon: FileText, color: 'text-blue-500' },
+    { label: 'Itineraries', value: stats.totalItineraries, icon: FileText, color: 'text-orange-500' },
     { label: 'Events', value: stats.totalEvents, icon: Calendar, color: 'text-purple-500' },
   ];
 
@@ -215,8 +235,12 @@ const Admin = () => {
         </div>
 
         {/* Management Tabs */}
-        <Tabs defaultValue="itineraries" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+        <Tabs defaultValue="users" className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="users" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Users
+            </TabsTrigger>
             <TabsTrigger value="itineraries" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Itineraries
@@ -226,6 +250,106 @@ const Admin = () => {
               Events
             </TabsTrigger>
           </TabsList>
+
+          {/* Users Tab */}
+          <TabsContent value="users" className="space-y-4 mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Registered Users ({users.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {users.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No users registered yet
+                  </p>
+                ) : (
+                  users.map((user) => (
+                    <div 
+                      key={user.id} 
+                      className="p-4 rounded-lg bg-muted/50 space-y-3"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-base">
+                            {user.full_name || 'No Name'}
+                          </p>
+                          <div className="flex flex-col gap-1 mt-1">
+                            {user.email && (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Mail className="h-3.5 w-3.5" />
+                                <span className="truncate">{user.email}</span>
+                              </div>
+                            )}
+                            {user.phone && (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Phone className="h-3.5 w-3.5" />
+                                <span>{user.phone}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {format(new Date(user.created_at), 'dd MMM yyyy')}
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2">
+                        {/* Registration Status */}
+                        <Badge 
+                          variant={user.registration_paid ? 'default' : 'secondary'}
+                          className="flex items-center gap-1"
+                        >
+                          {user.registration_paid ? (
+                            <>
+                              <CheckCircle className="h-3 w-3" />
+                              Registration Paid
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="h-3 w-3" />
+                              Unpaid
+                            </>
+                          )}
+                        </Badge>
+                        
+                        {/* Subscription Status */}
+                        <Badge 
+                          variant={user.subscription_status === 'active' ? 'default' : 'outline'}
+                          className={`flex items-center gap-1 ${
+                            user.subscription_status === 'active' 
+                              ? 'bg-emerald-500 hover:bg-emerald-600' 
+                              : ''
+                          }`}
+                        >
+                          {user.subscription_status === 'active' ? (
+                            <>
+                              <UserCheck className="h-3 w-3" />
+                              Active Subscriber
+                            </>
+                          ) : (
+                            <>
+                              <UserX className="h-3 w-3" />
+                              {user.subscription_status || 'Inactive'}
+                            </>
+                          )}
+                        </Badge>
+                        
+                        {/* Subscription Expiry */}
+                        {user.subscription_expires_at && (
+                          <Badge variant="outline" className="text-xs">
+                            Expires: {format(new Date(user.subscription_expires_at), 'dd MMM yyyy')}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="itineraries" className="space-y-4 mt-4">
             <ItineraryUploadForm onSuccess={fetchData} />
