@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { 
   Users, Calculator, FileText, Calendar, TrendingUp, 
   Shield, Loader2, Trash2, Eye, ToggleLeft, UserCheck, UserX,
-  Mail, Phone, CreditCard, CheckCircle, XCircle
+  Mail, Phone, CreditCard, CheckCircle, XCircle, Edit
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -40,6 +40,7 @@ interface Itinerary {
 interface Event {
   id: string;
   title: string;
+  description: string | null;
   country: string | null;
   event_date: string | null;
   is_active: boolean | null;
@@ -74,6 +75,7 @@ const Admin = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -407,7 +409,14 @@ const Admin = () => {
           </TabsContent>
 
           <TabsContent value="events" className="space-y-4 mt-4">
-            <EventForm onSuccess={fetchData} />
+            <EventForm 
+              onSuccess={() => {
+                fetchData();
+                setEditingEvent(null);
+              }} 
+              editEvent={editingEvent}
+              onCancelEdit={() => setEditingEvent(null)}
+            />
             
             {/* Events List */}
             <Card>
@@ -423,41 +432,56 @@ const Admin = () => {
                   events.map((event) => (
                     <div 
                       key={event.id} 
-                      className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
+                      className={`p-3 rounded-lg bg-muted/50 ${editingEvent?.id === event.id ? 'ring-2 ring-primary' : ''}`}
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium truncate">{event.title}</p>
-                          <Badge variant={event.is_active ? 'default' : 'secondary'} className="text-xs">
-                            {event.is_active ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                          {event.country && <span>{event.country}</span>}
-                          {event.event_date && (
-                            <span>• {format(new Date(event.event_date), 'dd MMM yyyy')}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{event.title}</p>
+                            <Badge variant={event.is_active ? 'default' : 'secondary'} className="text-xs">
+                              {event.is_active ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                            {event.country && <span>{event.country}</span>}
+                            {event.event_date && (
+                              <span>• {format(new Date(event.event_date), 'dd MMM yyyy')}</span>
+                            )}
+                            {event.location && <span className="truncate">• {event.location}</span>}
+                          </div>
+                          {event.description && (
+                            <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
+                              {event.description}
+                            </p>
                           )}
-                          {event.location && <span className="truncate">• {event.location}</span>}
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2 ml-2">
-                        <Switch
-                          checked={event.is_active ?? false}
-                          onCheckedChange={() => handleToggleEventActive(event.id, event.is_active)}
-                        />
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleDeleteEvent(event.id)}
-                          disabled={deletingId === event.id}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          {deletingId === event.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </Button>
+                        <div className="flex items-center gap-1 ml-2">
+                          <Switch
+                            checked={event.is_active ?? false}
+                            onCheckedChange={() => handleToggleEventActive(event.id, event.is_active)}
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditingEvent(event)}
+                            className="text-primary hover:text-primary"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteEvent(event.id)}
+                            disabled={deletingId === event.id}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            {deletingId === event.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))
