@@ -1,6 +1,5 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Plus, Loader2, Calendar, MapPin, Globe, Trash2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Loader2, Calendar, MapPin, Save, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,11 +11,23 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { popularCountries } from '@/lib/visaScoreCalculator';
 
-interface EventFormProps {
-  onSuccess?: () => void;
+interface Event {
+  id: string;
+  title: string;
+  description: string | null;
+  event_date: string | null;
+  location: string | null;
+  country: string | null;
+  is_active: boolean | null;
 }
 
-export function EventForm({ onSuccess }: EventFormProps) {
+interface EventFormProps {
+  onSuccess?: () => void;
+  editEvent?: Event | null;
+  onCancelEdit?: () => void;
+}
+
+export function EventForm({ onSuccess, editEvent, onCancelEdit }: EventFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -24,6 +35,30 @@ export function EventForm({ onSuccess }: EventFormProps) {
   const [location, setLocation] = useState('');
   const [country, setCountry] = useState('');
   const [isActive, setIsActive] = useState(true);
+
+  const isEditing = !!editEvent;
+
+  useEffect(() => {
+    if (editEvent) {
+      setTitle(editEvent.title || '');
+      setDescription(editEvent.description || '');
+      setEventDate(editEvent.event_date || '');
+      setLocation(editEvent.location || '');
+      setCountry(editEvent.country || '');
+      setIsActive(editEvent.is_active ?? true);
+    } else {
+      resetForm();
+    }
+  }, [editEvent]);
+
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setEventDate('');
+    setLocation('');
+    setCountry('');
+    setIsActive(true);
+  };
 
   const handleSubmit = async () => {
     if (!title) {
@@ -34,44 +69,68 @@ export function EventForm({ onSuccess }: EventFormProps) {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
-        .from('upcoming_events')
-        .insert({
-          title,
-          description: description || null,
-          event_date: eventDate || null,
-          location: location || null,
-          country: country || null,
-          is_active: isActive,
-        });
+      if (isEditing && editEvent) {
+        // Update existing event
+        const { error } = await supabase
+          .from('upcoming_events')
+          .update({
+            title,
+            description: description || null,
+            event_date: eventDate || null,
+            location: location || null,
+            country: country || null,
+            is_active: isActive,
+          })
+          .eq('id', editEvent.id);
 
-      if (error) throw error;
+        if (error) throw error;
+        toast.success('Event updated successfully!');
+      } else {
+        // Insert new event
+        const { error } = await supabase
+          .from('upcoming_events')
+          .insert({
+            title,
+            description: description || null,
+            event_date: eventDate || null,
+            location: location || null,
+            country: country || null,
+            is_active: isActive,
+          });
 
-      toast.success('Event added successfully!');
-      
-      // Reset form
-      setTitle('');
-      setDescription('');
-      setEventDate('');
-      setLocation('');
-      setCountry('');
-      setIsActive(true);
+        if (error) throw error;
+        toast.success('Event added successfully!');
+      }
 
+      resetForm();
+      onCancelEdit?.();
       onSuccess?.();
     } catch (error) {
-      console.error('Error adding event:', error);
-      toast.error('Failed to add event. Please try again.');
+      console.error('Error saving event:', error);
+      toast.error('Failed to save event. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const handleCancel = () => {
+    resetForm();
+    onCancelEdit?.();
+  };
+
   return (
-    <Card>
+    <Card className={isEditing ? 'border-primary' : ''}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-primary" />
-          Add Upcoming Event
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-primary" />
+            {isEditing ? 'Edit Event' : 'Add Upcoming Event'}
+          </span>
+          {isEditing && (
+            <Button variant="ghost" size="sm" onClick={handleCancel}>
+              <X className="h-4 w-4" />
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -93,7 +152,7 @@ export function EventForm({ onSuccess }: EventFormProps) {
             placeholder="Details about the event..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="min-h-[80px]"
+            className="min-h-[100px]"
           />
         </div>
 
@@ -146,23 +205,34 @@ export function EventForm({ onSuccess }: EventFormProps) {
           />
         </div>
 
-        <Button
-          onClick={handleSubmit}
-          disabled={isSubmitting || !title}
-          className="w-full gradient-primary text-primary-foreground touch-target"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Adding...
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Event
-            </>
+        <div className="flex gap-2">
+          {isEditing && (
+            <Button
+              onClick={handleCancel}
+              variant="outline"
+              className="flex-1 touch-target"
+            >
+              Cancel
+            </Button>
           )}
-        </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={isSubmitting || !title}
+            className={`gradient-primary text-primary-foreground touch-target ${isEditing ? 'flex-1' : 'w-full'}`}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {isEditing ? 'Saving...' : 'Adding...'}
+              </>
+            ) : (
+              <>
+                {isEditing ? <Save className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                {isEditing ? 'Save Changes' : 'Add Event'}
+              </>
+            )}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
