@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, Plane, Wallet, ChevronRight, IndianRupee } from 'lucide-react';
+import { Globe, Plane, ChevronRight, IndianRupee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, incomeRanges } from '@/lib/visaScoreCalculator';
+import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, getIncomeBracket } from '@/lib/visaScoreCalculator';
 
 interface VisaScoreFormProps {
   onSubmit: (data: VisaScoreInput) => void;
@@ -19,17 +19,19 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [travelHistoryTier1, setTravelHistoryTier1] = useState(false);
   const [travelHistoryTier2, setTravelHistoryTier2] = useState(false);
   const [travelHistoryTier3, setTravelHistoryTier3] = useState(false);
-  const [yearlyIncome, setYearlyIncome] = useState<VisaScoreInput['yearlyIncome']>('below_3lac');
+  const [yearlyIncomeAmount, setYearlyIncomeAmount] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const amount = Number(yearlyIncomeAmount) || 0;
     onSubmit({
       country,
-      purpose: 'tourist', // Default to tourist for this scoring system
+      purpose: 'tourist',
       travelHistoryTier1,
       travelHistoryTier2,
       travelHistoryTier3,
-      yearlyIncome,
+      yearlyIncome: getIncomeBracket(amount),
+      yearlyIncomeAmount: amount,
     });
   };
 
@@ -116,25 +118,20 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       title: 'Yearly Income',
       icon: IndianRupee,
       content: (
-        <RadioGroup
-          value={yearlyIncome}
-          onValueChange={(v) => setYearlyIncome(v as VisaScoreInput['yearlyIncome'])}
-          className="space-y-3"
-        >
-          {incomeRanges.map((item) => (
-            <Label
-              key={item.value}
-              className={`flex items-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target ${
-                yearlyIncome === item.value
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
-            >
-              <RadioGroupItem value={item.value} className="mr-3" />
-              <span className="font-medium">{item.label}</span>
-            </Label>
-          ))}
-        </RadioGroup>
+        <div className="space-y-2">
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">₹</span>
+            <Input
+              type="number"
+              placeholder="Enter yearly income"
+              value={yearlyIncomeAmount}
+              onChange={(e) => setYearlyIncomeAmount(e.target.value)}
+              className="pl-8 touch-target"
+              min={0}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">Enter your annual income in INR</p>
+        </div>
       ),
     },
   ];
