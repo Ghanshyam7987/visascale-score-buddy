@@ -4,10 +4,19 @@
 export interface VisaScoreInput {
   country: string;
   purpose: 'tourist' | 'business' | 'student' | 'work';
-  travelHistoryTier1: boolean; // Australia, NZ, US, Canada, UK, Schengen
-  travelHistoryTier2: boolean; // Japan, South Africa, South Korea, Brazil
-  travelHistoryTier3: boolean; // Thailand, Singapore, Malaysia, HK-Macau, China, Vietnam, Azerbaijan, other Asian
+  travelHistoryTier1: boolean;
+  travelHistoryTier2: boolean;
+  travelHistoryTier3: boolean;
   yearlyIncome: 'below_3lac' | '3_to_5lac' | '5_to_10lac' | '10_to_17lac' | 'above_17lac';
+  yearlyIncomeAmount?: number;
+}
+
+export function getIncomeBracket(amount: number): VisaScoreInput['yearlyIncome'] {
+  if (amount >= 1700000) return 'above_17lac';
+  if (amount >= 1000000) return '10_to_17lac';
+  if (amount >= 500000) return '5_to_10lac';
+  if (amount >= 300000) return '3_to_5lac';
+  return 'below_3lac';
 }
 
 export interface CountryScoreConfig {
