@@ -9,6 +9,17 @@ export interface VisaScoreInput {
   travelHistoryTier3: boolean;
   yearlyIncome: 'below_3lac' | '3_to_5lac' | '5_to_10lac' | '10_to_17lac' | 'above_17lac';
   yearlyIncomeAmount?: number;
+  employmentType: 'salaried' | 'business';
+  // Salaried documents
+  docSalarySlip?: boolean;
+  docItr3Years?: boolean;
+  docCompanyNoc?: boolean;
+  docPersonalBankStatement?: boolean;
+  // Business documents
+  docCompanyRegistration?: boolean;
+  docBusinessItr3Years?: boolean;
+  docFirmBankStatement?: boolean;
+  docBusinessPersonalBankStatement?: boolean;
 }
 
 export function getIncomeBracket(amount: number): VisaScoreInput['yearlyIncome'] {
@@ -283,6 +294,19 @@ export function calculateVisaScore(
   
   // Add income bonus
   score += config.incomeScores[input.yearlyIncome] || 0;
+  
+  // Document completeness bonus: +2 per checked tier if all docs are complete
+  const allDocsComplete = input.employmentType === 'salaried'
+    ? !!(input.docSalarySlip && input.docItr3Years && input.docCompanyNoc && input.docPersonalBankStatement)
+    : !!(input.docCompanyRegistration && input.docBusinessItr3Years && input.docFirmBankStatement && input.docBusinessPersonalBankStatement);
+  
+  if (allDocsComplete) {
+    let tierBonus = 0;
+    if (input.travelHistoryTier1) tierBonus += 2;
+    if (input.travelHistoryTier2) tierBonus += 2;
+    if (input.travelHistoryTier3) tierBonus += 2;
+    score += tierBonus;
+  }
   
   // Cap at country's max score
   score = Math.min(score, config.maxScore);
