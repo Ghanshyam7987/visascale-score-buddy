@@ -56,7 +56,6 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       subtitle: 'Select all that apply (highest tier will be counted)',
       content: (
         <div className="space-y-4">
-          {/* Tier 1 */}
           <div className="space-y-2">
             <div className="flex items-center space-x-3">
               <Checkbox
@@ -68,15 +67,13 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
                 htmlFor="tier1" 
                 className="text-sm font-medium leading-none cursor-pointer flex-1"
               >
-                <span className="text-primary font-semibold">Tier 1</span>
-                <p className="text-muted-foreground text-xs mt-1">
+                <p className="text-muted-foreground text-xs">
                   {tier1Countries.join(', ')}
                 </p>
               </Label>
             </div>
           </div>
 
-          {/* Tier 2 */}
           <div className="space-y-2">
             <div className="flex items-center space-x-3">
               <Checkbox
@@ -88,15 +85,13 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
                 htmlFor="tier2" 
                 className="text-sm font-medium leading-none cursor-pointer flex-1"
               >
-                <span className="text-primary font-semibold">Tier 2</span>
-                <p className="text-muted-foreground text-xs mt-1">
+                <p className="text-muted-foreground text-xs">
                   {tier2Countries.join(', ')}
                 </p>
               </Label>
             </div>
           </div>
 
-          {/* Tier 3 */}
           <div className="space-y-2">
             <div className="flex items-center space-x-3">
               <Checkbox
@@ -108,17 +103,12 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
                 htmlFor="tier3" 
                 className="text-sm font-medium leading-none cursor-pointer flex-1"
               >
-                <span className="text-primary font-semibold">Tier 3</span>
-                <p className="text-muted-foreground text-xs mt-1">
+                <p className="text-muted-foreground text-xs">
                   {tier3Countries.join(', ')}
                 </p>
               </Label>
             </div>
           </div>
-
-          <p className="text-xs text-muted-foreground bg-muted p-2 rounded-md">
-            💡 Only the highest tier bonus will be applied to your score
-          </p>
         </div>
       ),
     },

@@ -300,9 +300,9 @@ export function getApprovalSuggestions(
   if (!input.travelHistoryTier1 && !input.travelHistoryTier2 && !input.travelHistoryTier3) {
     suggestions.push('Build travel history by visiting visa-free or e-visa countries first');
   } else if (!input.travelHistoryTier1 && input.travelHistoryTier3) {
-    suggestions.push('Travel to Tier 1 countries (US, UK, Canada, Schengen, Australia, NZ) to boost your score significantly');
+    suggestions.push('Travel to major countries like US, UK, Canada, Schengen, Australia, NZ to boost your score significantly');
   } else if (!input.travelHistoryTier1 && input.travelHistoryTier2) {
-    suggestions.push('Consider traveling to Tier 1 destinations for maximum travel history bonus');
+    suggestions.push('Consider traveling to major destinations like US, UK, Canada for maximum travel history bonus');
   }
   
   if (input.yearlyIncome === 'below_3lac' || input.yearlyIncome === '3_to_5lac') {
