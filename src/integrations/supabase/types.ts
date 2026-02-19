@@ -197,6 +197,57 @@ export type Database = {
         }
         Relationships: []
       }
+      visa_country_configs: {
+        Row: {
+          base_score: number
+          country: string
+          id: string
+          income_10_to_17lac: number
+          income_3_to_5lac: number
+          income_5_to_10lac: number
+          income_above_17lac: number
+          income_below_3lac: number
+          max_score: number
+          tier1_bonus: number
+          tier2_bonus: number
+          tier3_bonus: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          base_score?: number
+          country: string
+          id?: string
+          income_10_to_17lac?: number
+          income_3_to_5lac?: number
+          income_5_to_10lac?: number
+          income_above_17lac?: number
+          income_below_3lac?: number
+          max_score?: number
+          tier1_bonus?: number
+          tier2_bonus?: number
+          tier3_bonus?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          base_score?: number
+          country?: string
+          id?: string
+          income_10_to_17lac?: number
+          income_3_to_5lac?: number
+          income_5_to_10lac?: number
+          income_above_17lac?: number
+          income_below_3lac?: number
+          max_score?: number
+          tier1_bonus?: number
+          tier2_bonus?: number
+          tier3_bonus?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       visa_score_calculations: {
         Row: {
           approval_category: string

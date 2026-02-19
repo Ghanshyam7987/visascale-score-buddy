@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { 
   Users, Calculator, FileText, Calendar, TrendingUp, 
   Shield, Loader2, Trash2, Eye, ToggleLeft, UserCheck, UserX,
-  Mail, Phone, CreditCard, CheckCircle, XCircle, Edit
+  Mail, Phone, CreditCard, CheckCircle, XCircle, Edit, Settings
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { ItineraryUploadForm } from '@/components/admin/ItineraryUploadForm';
 import { EventForm } from '@/components/admin/EventForm';
+import { VisaScoreConfigEditor } from '@/components/admin/VisaScoreConfigEditor';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -238,18 +239,22 @@ const Admin = () => {
 
         {/* Management Tabs */}
         <Tabs defaultValue="users" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="users" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="users" className="flex items-center gap-1 text-xs">
+              <Users className="h-3.5 w-3.5" />
               Users
             </TabsTrigger>
-            <TabsTrigger value="itineraries" className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
+            <TabsTrigger value="itineraries" className="flex items-center gap-1 text-xs">
+              <FileText className="h-3.5 w-3.5" />
               Itineraries
             </TabsTrigger>
-            <TabsTrigger value="events" className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
+            <TabsTrigger value="events" className="flex items-center gap-1 text-xs">
+              <Calendar className="h-3.5 w-3.5" />
               Events
+            </TabsTrigger>
+            <TabsTrigger value="visa-config" className="flex items-center gap-1 text-xs">
+              <Settings className="h-3.5 w-3.5" />
+              Visa Score
             </TabsTrigger>
           </TabsList>
 
@@ -486,6 +491,23 @@ const Admin = () => {
                     </div>
                   ))
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="visa-config" className="space-y-4 mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  Visa Score Configuration
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Edit scoring percentages for each country. Changes apply immediately to the calculator.
+                </p>
+                <VisaScoreConfigEditor />
               </CardContent>
             </Card>
           </TabsContent>
