@@ -24,7 +24,6 @@ import { format } from 'date-fns';
 interface DashboardStats {
   totalUsers: number;
   activeSubscriptions: number;
-  totalCalculations: number;
   totalItineraries: number;
   totalEvents: number;
   paidRegistrations: number;
@@ -66,7 +65,6 @@ const Admin = () => {
   const [stats, setStats] = useState<DashboardStats>({
     totalUsers: 0,
     activeSubscriptions: 0,
-    totalCalculations: 0,
     totalItineraries: 0,
     totalEvents: 0,
     paidRegistrations: 0,
@@ -92,12 +90,11 @@ const Admin = () => {
     setLoading(true);
     try {
       // Fetch stats and data
-      const [profilesRes, calculationsRes, itinerariesRes, eventsRes] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('visa_score_calculations').select('id'),
-        supabase.from('itineraries').select('*').order('created_at', { ascending: false }),
-        supabase.from('upcoming_events').select('*').order('event_date', { ascending: true }),
-      ]);
+    const [profilesRes, itinerariesRes, eventsRes] = await Promise.all([
+      supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+      supabase.from('itineraries').select('*').order('created_at', { ascending: false }),
+      supabase.from('upcoming_events').select('*').order('event_date', { ascending: true }),
+    ]);
 
       const profiles = profilesRes.data || [];
       const activeCount = profiles.filter(p => p.subscription_status === 'active').length;
@@ -106,7 +103,6 @@ const Admin = () => {
       setStats({
         totalUsers: profiles.length,
         activeSubscriptions: activeCount,
-        totalCalculations: calculationsRes.data?.length || 0,
         totalItineraries: itinerariesRes.data?.length || 0,
         totalEvents: eventsRes.data?.length || 0,
         paidRegistrations: paidCount,
@@ -201,7 +197,6 @@ const Admin = () => {
     { label: 'Total Users', value: stats.totalUsers, icon: Users, color: 'text-primary' },
     { label: 'Paid Registrations', value: stats.paidRegistrations, icon: CreditCard, color: 'text-emerald-500' },
     { label: 'Active Subscriptions', value: stats.activeSubscriptions, icon: TrendingUp, color: 'text-blue-500' },
-    { label: 'Visa Calculations', value: stats.totalCalculations, icon: Calculator, color: 'text-accent' },
     { label: 'Itineraries', value: stats.totalItineraries, icon: FileText, color: 'text-orange-500' },
     { label: 'Events', value: stats.totalEvents, icon: Calendar, color: 'text-purple-500' },
   ];
