@@ -6,13 +6,16 @@ import { VisaScoreResult } from '@/components/visa/VisaScoreResult';
 import { VisaScoreInput, calculateVisaScore, getApprovalSuggestions } from '@/lib/visaScoreCalculator';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useVisaCountryConfigs } from '@/hooks/useVisaCountryConfigs';
+import { Loader2 } from 'lucide-react';
 
 const Calculator = () => {
   const [result, setResult] = useState<{ score: number; category: 'Low' | 'Medium' | 'High'; country: string; suggestions: string[] } | null>(null);
   const { user } = useAuth();
+  const { configs, loading: configsLoading } = useVisaCountryConfigs();
 
   const handleSubmit = async (data: VisaScoreInput) => {
-    const { score, category } = calculateVisaScore(data);
+    const { score, category } = calculateVisaScore(data, configs);
     const suggestions = getApprovalSuggestions(data, score);
 
     // Save to database
@@ -38,7 +41,9 @@ const Calculator = () => {
     <AppLayout>
       <Header title="VisaScore Calculator" showBack />
       <div className="p-4">
-        {result ? (
+        {configsLoading ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+        ) : result ? (
           <VisaScoreResult {...result} onReset={() => setResult(null)} />
         ) : (
           <VisaScoreForm onSubmit={handleSubmit} />

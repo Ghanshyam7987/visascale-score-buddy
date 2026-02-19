@@ -276,9 +276,11 @@ const defaultConfig: CountryScoreConfig = {
 };
 
 export function calculateVisaScore(
-  input: VisaScoreInput
+  input: VisaScoreInput,
+  customConfigs?: Record<string, CountryScoreConfig>
 ): { score: number; category: 'Low' | 'Medium' | 'High' } {
-  const config = countryConfigs[input.country] || defaultConfig;
+  const configs = customConfigs || countryConfigs;
+  const config = configs[input.country] || defaultConfig;
   
   // Start with base score
   let score = config.baseScore;
