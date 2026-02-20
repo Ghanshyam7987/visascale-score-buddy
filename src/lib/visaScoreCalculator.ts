@@ -15,7 +15,8 @@ export interface VisaScoreInput {
   visaIssuedNotTravelled?: boolean;
   yearlyIncome: 'below_3lac' | '3_to_5lac' | '5_to_10lac' | '10_to_17lac' | 'above_17lac';
   yearlyIncomeAmount?: number;
-  employmentType: 'salaried' | 'business';
+  employmentType: 'salaried' | 'self_business' | 'salaried_sponsored' | 'self_business_sponsored' | 'sponsored_mother' | 'sponsored_father' | 'sponsored_husband';
+  visaIssuedNotTravelledCountry?: string;
   // Salaried documents
   docSalarySlip?: boolean;
   docItr3Years?: boolean;
@@ -319,7 +320,8 @@ export function calculateVisaScore(
   score += config.incomeScores[input.yearlyIncome] || 0;
   
   // Document completeness bonus: +2 per checked tier if all docs are complete
-  const allDocsComplete = input.employmentType === 'salaried'
+  const isSalariedType = input.employmentType === 'salaried' || input.employmentType === 'salaried_sponsored';
+  const allDocsComplete = isSalariedType
     ? !!(input.docSalarySlip && input.docItr3Years && input.docCompanyNoc && input.docPersonalBankStatement)
     : !!(input.docCompanyRegistration && input.docBusinessItr3Years && input.docFirmBankStatement && input.docBusinessPersonalBankStatement);
   
@@ -331,8 +333,13 @@ export function calculateVisaScore(
     score += tierBonus;
   }
   
-  // Cap at country's max score
-  score = Math.min(score, config.maxScore);
+  // Visa issued but not travelled penalty: -2%
+  if (input.visaIssuedNotTravelledCountry) {
+    score -= 2;
+  }
+  
+  // Cap at country's max score and floor at 0
+  score = Math.max(0, Math.min(score, config.maxScore));
   
   // Determine category
   let category: 'Low' | 'Medium' | 'High';
