@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+
 import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, tier4Countries, allTravelCountries, getIncomeBracket } from '@/lib/visaScoreCalculator';
 
 interface VisaScoreFormProps {
@@ -21,9 +21,9 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [selectedTier2, setSelectedTier2] = useState<string[]>([]);
   const [selectedTier3, setSelectedTier3] = useState<string[]>([]);
   const [selectedTier4, setSelectedTier4] = useState<string[]>([]);
-  const [visaIssuedNotTravelled, setVisaIssuedNotTravelled] = useState(false);
+  const [visaIssuedNotTravelledCountry, setVisaIssuedNotTravelledCountry] = useState('');
   const [yearlyIncomeAmount, setYearlyIncomeAmount] = useState('');
-  const [employmentType, setEmploymentType] = useState<'salaried' | 'business'>('salaried');
+  const [employmentType, setEmploymentType] = useState<'salaried' | 'self_business' | 'salaried_sponsored' | 'self_business_sponsored' | 'sponsored_mother' | 'sponsored_father' | 'sponsored_husband'>('salaried');
   
   // Salaried docs
   const [docSalarySlip, setDocSalarySlip] = useState(false);
@@ -44,6 +44,7 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const amount = Number(yearlyIncomeAmount) || 0;
+    const isSalariedType = employmentType === 'salaried' || employmentType === 'salaried_sponsored';
     onSubmit({
       country,
       purpose: 'tourist',
@@ -55,18 +56,19 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       tier2CountryCount: selectedTier2.length,
       tier3CountryCount: selectedTier3.length,
       tier4CountryCount: selectedTier4.length,
-      visaIssuedNotTravelled,
+      visaIssuedNotTravelled: !!(visaIssuedNotTravelledCountry && visaIssuedNotTravelledCountry !== 'none'),
+      visaIssuedNotTravelledCountry: (visaIssuedNotTravelledCountry && visaIssuedNotTravelledCountry !== 'none') ? visaIssuedNotTravelledCountry : undefined,
       yearlyIncome: getIncomeBracket(amount),
       yearlyIncomeAmount: amount,
       employmentType,
-      docSalarySlip,
-      docItr3Years,
-      docCompanyNoc,
-      docPersonalBankStatement,
-      docCompanyRegistration,
-      docBusinessItr3Years,
-      docFirmBankStatement,
-      docBusinessPersonalBankStatement,
+      docSalarySlip: isSalariedType ? docSalarySlip : undefined,
+      docItr3Years: isSalariedType ? docItr3Years : undefined,
+      docCompanyNoc: isSalariedType ? docCompanyNoc : undefined,
+      docPersonalBankStatement: isSalariedType ? docPersonalBankStatement : undefined,
+      docCompanyRegistration: !isSalariedType ? docCompanyRegistration : undefined,
+      docBusinessItr3Years: !isSalariedType ? docBusinessItr3Years : undefined,
+      docFirmBankStatement: !isSalariedType ? docFirmBankStatement : undefined,
+      docBusinessPersonalBankStatement: !isSalariedType ? docBusinessPersonalBankStatement : undefined,
     });
   };
 
@@ -84,7 +86,8 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     { id: 'bizPersonalBank', label: 'Personal Bank Statement', checked: docBusinessPersonalBankStatement, onChange: setDocBusinessPersonalBankStatement },
   ];
 
-  const currentDocs = employmentType === 'salaried' ? salariedDocs : businessDocs;
+  const isSalariedType = employmentType === 'salaried' || employmentType === 'salaried_sponsored';
+  const currentDocs = isSalariedType ? salariedDocs : businessDocs;
 
   const renderTierCountries = (
     countries: string[],
@@ -135,28 +138,22 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       title: 'Employment Type',
       icon: Briefcase,
       content: (
-        <RadioGroup
-          value={employmentType}
-          onValueChange={(v) => setEmploymentType(v as 'salaried' | 'business')}
-          className="flex gap-4"
-        >
-          <Label
-            className={`flex items-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target flex-1 ${
-              employmentType === 'salaried' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-            }`}
-          >
-            <RadioGroupItem value="salaried" className="mr-3" />
-            <span className="font-medium">Salaried</span>
-          </Label>
-          <Label
-            className={`flex items-center rounded-lg border-2 p-4 cursor-pointer transition-all touch-target flex-1 ${
-              employmentType === 'business' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-            }`}
-          >
-            <RadioGroupItem value="business" className="mr-3" />
-            <span className="font-medium">Business</span>
-          </Label>
-        </RadioGroup>
+        <div className="space-y-2">
+          <Select value={employmentType} onValueChange={(v) => setEmploymentType(v as typeof employmentType)}>
+            <SelectTrigger className="w-full touch-target">
+              <SelectValue placeholder="Select employment type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="salaried">Salaried</SelectItem>
+              <SelectItem value="self_business">Self Business</SelectItem>
+              <SelectItem value="salaried_sponsored">Salaried but Sponsored</SelectItem>
+              <SelectItem value="self_business_sponsored">Self Business but Sponsored</SelectItem>
+              <SelectItem value="sponsored_mother">Sponsored (by Mother)</SelectItem>
+              <SelectItem value="sponsored_father">Sponsored (by Father)</SelectItem>
+              <SelectItem value="sponsored_husband">Sponsored (by Husband)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       ),
     },
     {
@@ -209,22 +206,23 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     {
       title: 'Visa Issued But Not Travelled',
       icon: Stamp,
-      subtitle: 'Select if you have a valid visa but haven\'t traveled',
+      subtitle: 'Select country if you have a visa issued but haven\'t traveled — this will reduce score by 2%',
       content: (
         <div className="space-y-3">
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="visaIssuedNotTravelled"
-              checked={visaIssuedNotTravelled}
-              onCheckedChange={(checked) => setVisaIssuedNotTravelled(checked === true)}
-            />
-            <Label htmlFor="visaIssuedNotTravelled" className="text-sm font-medium cursor-pointer flex-1">
-              Yes, I have a visa issued but not yet traveled
-            </Label>
-          </div>
-          {visaIssuedNotTravelled && (
-            <p className="text-xs text-muted-foreground pl-7">
-              Having a valid visa (even unused) shows credibility to other consulates
+          <Select value={visaIssuedNotTravelledCountry} onValueChange={setVisaIssuedNotTravelledCountry}>
+            <SelectTrigger className="w-full touch-target">
+              <SelectValue placeholder="Select country (if applicable)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {allTravelCountries.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {visaIssuedNotTravelledCountry && visaIssuedNotTravelledCountry !== 'none' && (
+            <p className="text-xs text-destructive pl-1">
+              ⚠️ Visa issued but not travelled to {visaIssuedNotTravelledCountry} — 2% will be deducted from final score
             </p>
           )}
         </div>
