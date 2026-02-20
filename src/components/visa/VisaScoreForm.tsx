@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, Plane, ChevronRight, IndianRupee, Briefcase, FileText } from 'lucide-react';
+import { Globe, Plane, ChevronRight, IndianRupee, Briefcase, FileText, Stamp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, getIncomeBracket } from '@/lib/visaScoreCalculator';
+import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, tier4Countries, allTravelCountries, getIncomeBracket } from '@/lib/visaScoreCalculator';
 
 interface VisaScoreFormProps {
   onSubmit: (data: VisaScoreInput) => void;
@@ -17,9 +17,11 @@ interface VisaScoreFormProps {
 
 export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [country, setCountry] = useState('');
-  const [travelHistoryTier1, setTravelHistoryTier1] = useState(false);
-  const [travelHistoryTier2, setTravelHistoryTier2] = useState(false);
-  const [travelHistoryTier3, setTravelHistoryTier3] = useState(false);
+  const [selectedTier1, setSelectedTier1] = useState<string[]>([]);
+  const [selectedTier2, setSelectedTier2] = useState<string[]>([]);
+  const [selectedTier3, setSelectedTier3] = useState<string[]>([]);
+  const [selectedTier4, setSelectedTier4] = useState<string[]>([]);
+  const [visaIssuedNotTravelled, setVisaIssuedNotTravelled] = useState(false);
   const [yearlyIncomeAmount, setYearlyIncomeAmount] = useState('');
   const [employmentType, setEmploymentType] = useState<'salaried' | 'business'>('salaried');
   
@@ -35,15 +37,25 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [docFirmBankStatement, setDocFirmBankStatement] = useState(false);
   const [docBusinessPersonalBankStatement, setDocBusinessPersonalBankStatement] = useState(false);
 
+  const toggleCountryInTier = (country: string, selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => {
+    setSelected(prev => prev.includes(country) ? prev.filter(c => c !== country) : [...prev, country]);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const amount = Number(yearlyIncomeAmount) || 0;
     onSubmit({
       country,
       purpose: 'tourist',
-      travelHistoryTier1,
-      travelHistoryTier2,
-      travelHistoryTier3,
+      travelHistoryTier1: selectedTier1.length > 0,
+      travelHistoryTier2: selectedTier2.length > 0,
+      travelHistoryTier3: selectedTier3.length > 0,
+      travelHistoryTier4: selectedTier4.length > 0,
+      tier1CountryCount: selectedTier1.length,
+      tier2CountryCount: selectedTier2.length,
+      tier3CountryCount: selectedTier3.length,
+      tier4CountryCount: selectedTier4.length,
+      visaIssuedNotTravelled,
       yearlyIncome: getIncomeBracket(amount),
       yearlyIncomeAmount: amount,
       employmentType,
@@ -73,6 +85,34 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   ];
 
   const currentDocs = employmentType === 'salaried' ? salariedDocs : businessDocs;
+
+  const renderTierCountries = (
+    countries: string[],
+    selected: string[],
+    setSelected: React.Dispatch<React.SetStateAction<string[]>>,
+    tierLabel: string
+  ) => (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground mb-2">{tierLabel}</p>
+      <div className="flex flex-wrap gap-2">
+        {countries.map((c) => (
+          <Label
+            key={c}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-all text-xs ${
+              selected.includes(c) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/50'
+            }`}
+          >
+            <Checkbox
+              checked={selected.includes(c)}
+              onCheckedChange={() => toggleCountryInTier(c, selected, setSelected)}
+              className="h-3.5 w-3.5"
+            />
+            {c}
+          </Label>
+        ))}
+      </div>
+    </div>
+  );
 
   const formSections = [
     {
@@ -156,39 +196,37 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     {
       title: 'Travel History',
       icon: Plane,
-      subtitle: 'Select all that apply',
+      subtitle: 'Select countries you have traveled to',
       content: (
         <div className="space-y-4">
+          {renderTierCountries(tier1Countries, selectedTier1, setSelectedTier1, 'Tier 1 — Major Countries')}
+          {renderTierCountries(tier2Countries, selectedTier2, setSelectedTier2, 'Tier 2 — Important Countries')}
+          {renderTierCountries(tier4Countries, selectedTier4, setSelectedTier4, 'Tier 3 — European Countries')}
+          {renderTierCountries(tier3Countries, selectedTier3, setSelectedTier3, 'Tier 4 — Asian & Other Countries')}
+        </div>
+      ),
+    },
+    {
+      title: 'Visa Issued But Not Travelled',
+      icon: Stamp,
+      subtitle: 'Select if you have a valid visa but haven\'t traveled',
+      content: (
+        <div className="space-y-3">
           <div className="flex items-center space-x-3">
             <Checkbox
-              id="tier1"
-              checked={travelHistoryTier1}
-              onCheckedChange={(checked) => setTravelHistoryTier1(checked === true)}
+              id="visaIssuedNotTravelled"
+              checked={visaIssuedNotTravelled}
+              onCheckedChange={(checked) => setVisaIssuedNotTravelled(checked === true)}
             />
-            <Label htmlFor="tier1" className="text-sm font-medium leading-none cursor-pointer flex-1">
-              <p className="text-muted-foreground text-xs">{tier1Countries.join(', ')}</p>
+            <Label htmlFor="visaIssuedNotTravelled" className="text-sm font-medium cursor-pointer flex-1">
+              Yes, I have a visa issued but not yet traveled
             </Label>
           </div>
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="tier2"
-              checked={travelHistoryTier2}
-              onCheckedChange={(checked) => setTravelHistoryTier2(checked === true)}
-            />
-            <Label htmlFor="tier2" className="text-sm font-medium leading-none cursor-pointer flex-1">
-              <p className="text-muted-foreground text-xs">{tier2Countries.join(', ')}</p>
-            </Label>
-          </div>
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="tier3"
-              checked={travelHistoryTier3}
-              onCheckedChange={(checked) => setTravelHistoryTier3(checked === true)}
-            />
-            <Label htmlFor="tier3" className="text-sm font-medium leading-none cursor-pointer flex-1">
-              <p className="text-muted-foreground text-xs">{tier3Countries.join(', ')}</p>
-            </Label>
-          </div>
+          {visaIssuedNotTravelled && (
+            <p className="text-xs text-muted-foreground pl-7">
+              Having a valid visa (even unused) shows credibility to other consulates
+            </p>
+          )}
         </div>
       ),
     },
