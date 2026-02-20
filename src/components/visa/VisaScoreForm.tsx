@@ -125,6 +125,19 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       subtitle: 'Complete all documents for bonus points',
       content: (
         <div className="space-y-3">
+          <div className="flex items-center space-x-3 pb-2 border-b border-border">
+            <Checkbox
+              id="selectAll"
+              checked={currentDocs.every((doc) => doc.checked)}
+              onCheckedChange={(checked) => {
+                const val = checked === true;
+                currentDocs.forEach((doc) => doc.onChange(val));
+              }}
+            />
+            <Label htmlFor="selectAll" className="text-sm font-semibold cursor-pointer flex-1">
+              Select All
+            </Label>
+          </div>
           {currentDocs.map((doc) => (
             <div key={doc.id} className="flex items-center space-x-3">
               <Checkbox
