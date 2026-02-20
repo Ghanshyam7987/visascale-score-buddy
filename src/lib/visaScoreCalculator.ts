@@ -7,6 +7,12 @@ export interface VisaScoreInput {
   travelHistoryTier1: boolean;
   travelHistoryTier2: boolean;
   travelHistoryTier3: boolean;
+  travelHistoryTier4: boolean;
+  tier1CountryCount?: number;
+  tier2CountryCount?: number;
+  tier3CountryCount?: number;
+  tier4CountryCount?: number;
+  visaIssuedNotTravelled?: boolean;
   yearlyIncome: 'below_3lac' | '3_to_5lac' | '5_to_10lac' | '10_to_17lac' | 'above_17lac';
   yearlyIncomeAmount?: number;
   employmentType: 'salaried' | 'business';
@@ -292,6 +298,21 @@ export function calculateVisaScore(
     score += config.tier2Bonus;
   } else if (input.travelHistoryTier3) {
     score += config.tier3Bonus;
+  } else if (input.travelHistoryTier4) {
+    score += config.tier3Bonus; // tier4 uses same bonus as tier3
+  }
+  
+  // Multi-country bonus: +2% per additional country in same tier (beyond the first)
+  const tierCounts = [
+    input.tier1CountryCount || 0,
+    input.tier2CountryCount || 0,
+    input.tier3CountryCount || 0,
+    input.tier4CountryCount || 0,
+  ];
+  for (const count of tierCounts) {
+    if (count > 1) {
+      score += (count - 1) * 2;
+    }
   }
   
   // Add income bonus
@@ -387,6 +408,7 @@ export const tier1Countries = [
   'Canada',
   'United Kingdom',
   'Schengen',
+  'Other European Countries',
 ];
 
 export const tier2Countries = [
@@ -394,6 +416,7 @@ export const tier2Countries = [
   'South Africa',
   'South Korea',
   'Brazil',
+  'Georgia',
 ];
 
 export const tier3Countries = [
@@ -406,6 +429,18 @@ export const tier3Countries = [
   'Vietnam',
   'Azerbaijan',
   'Other Asian Countries',
+];
+
+export const tier4Countries = [
+  'Switzerland',
+  'France',
+];
+
+export const allTravelCountries = [
+  ...tier1Countries,
+  ...tier2Countries,
+  ...tier3Countries,
+  ...tier4Countries,
 ];
 
 export const incomeRanges = [
