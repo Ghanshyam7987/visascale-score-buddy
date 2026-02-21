@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calculator, FileText, User, Shield, Home } from 'lucide-react';
+import { Calculator, FileText, User, Shield, Home, MapPin, CalendarDays } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function BottomNav() {
@@ -10,7 +10,8 @@ export function BottomNav() {
   const navItems = [
     { path: '/dashboard', icon: Home, label: 'Home' },
     { path: '/calculator', icon: Calculator, label: 'VisaScore' },
-    { path: '/salary-slip', icon: FileText, label: 'Salary Slip' },
+    { path: '/itineraries', icon: MapPin, label: 'Itineraries' },
+    { path: '/events', icon: CalendarDays, label: 'Events' },
     { path: '/profile', icon: User, label: 'Profile' },
   ];
 
