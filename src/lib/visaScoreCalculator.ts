@@ -13,8 +13,11 @@ export interface VisaScoreInput {
   tier3CountryCount?: number;
   tier4CountryCount?: number;
   visaIssuedNotTravelled?: boolean;
+  visaIssuedNotTravelledCountries?: string[];
   yearlyIncome: 'below_3lac' | '3_to_5lac' | '5_to_10lac' | '10_to_17lac' | 'above_17lac';
   yearlyIncomeAmount?: number;
+  sponsorYearlyIncome?: 'below_3lac' | '3_to_5lac' | '5_to_10lac' | '10_to_17lac' | 'above_17lac';
+  sponsorYearlyIncomeAmount?: number;
   employmentType: 'salaried' | 'self_business' | 'salaried_sponsored' | 'self_business_sponsored' | 'sponsored_mother' | 'sponsored_father' | 'sponsored_husband';
   visaIssuedNotTravelledCountry?: string;
   // Salaried documents
@@ -27,6 +30,13 @@ export interface VisaScoreInput {
   docBusinessItr3Years?: boolean;
   docFirmBankStatement?: boolean;
   docBusinessPersonalBankStatement?: boolean;
+  // Sponsor documents (combined salaried + business)
+  docSponsorSalarySlip?: boolean;
+  docSponsorItr3Years?: boolean;
+  docSponsorCompanyNoc?: boolean;
+  docSponsorPersonalBankStatement?: boolean;
+  docSponsorCompanyRegistration?: boolean;
+  docSponsorFirmBankStatement?: boolean;
 }
 
 export function getIncomeBracket(amount: number): VisaScoreInput['yearlyIncome'] {
@@ -55,232 +65,77 @@ export interface CountryScoreConfig {
 // Country-specific scoring configurations
 export const countryConfigs: Record<string, CountryScoreConfig> = {
   'United States of America': {
-    maxScore: 90,
-    baseScore: 40,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 1,
-      '5_to_10lac': 5,
-      '10_to_17lac': 10,
-      above_17lac: 15,
-    },
+    maxScore: 90, baseScore: 40, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 1, '5_to_10lac': 5, '10_to_17lac': 10, above_17lac: 15 },
   },
   'Canada': {
-    maxScore: 95,
-    baseScore: 45,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 1,
-      '5_to_10lac': 5,
-      '10_to_17lac': 10,
-      above_17lac: 15,
-    },
+    maxScore: 95, baseScore: 45, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 1, '5_to_10lac': 5, '10_to_17lac': 10, above_17lac: 15 },
   },
   'United Kingdom': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 19,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 19, above_17lac: 24 },
   },
   'Schengen Area': {
-    maxScore: 95,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 18,
-      above_17lac: 24,
-    },
+    maxScore: 95, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 18, above_17lac: 24 },
   },
   'Australia': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 21,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 21, above_17lac: 24 },
   },
   'New Zealand': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 21,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 21, above_17lac: 24 },
   },
   'Japan': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'South Africa': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'South Korea': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'Brazil': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'Switzerland': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'France': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'Turkey': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'Ireland': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 22,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 22, above_17lac: 24 },
   },
   'Other European Countries': {
-    maxScore: 99,
-    baseScore: 50,
-    tier1Bonus: 20,
-    tier2Bonus: 10,
-    tier3Bonus: 5,
-    incomeScores: {
-      below_3lac: 0,
-      '3_to_5lac': 5,
-      '5_to_10lac': 10,
-      '10_to_17lac': 20,
-      above_17lac: 24,
-    },
+    maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 20, above_17lac: 24 },
   },
 };
 
-// Default config for unlisted countries
 const defaultConfig: CountryScoreConfig = {
-  maxScore: 99,
-  baseScore: 50,
-  tier1Bonus: 20,
-  tier2Bonus: 10,
-  tier3Bonus: 5,
-  incomeScores: {
-    below_3lac: 0,
-    '3_to_5lac': 5,
-    '5_to_10lac': 10,
-    '10_to_17lac': 20,
-    above_17lac: 24,
-  },
+  maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+  incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 20, above_17lac: 24 },
 };
+
+export const isSponsoredType = (type: string) =>
+  type === 'sponsored_mother' || type === 'sponsored_father' || type === 'sponsored_husband';
+
+export const isSalariedDocType = (type: string) =>
+  type === 'salaried' || type === 'salaried_sponsored';
 
 export function calculateVisaScore(
   input: VisaScoreInput,
@@ -289,10 +144,9 @@ export function calculateVisaScore(
   const configs = customConfigs || countryConfigs;
   const config = configs[input.country] || defaultConfig;
   
-  // Start with base score
   let score = config.baseScore;
   
-  // Add travel history bonus (only highest tier counts - mutually exclusive)
+  // Travel history bonus
   if (input.travelHistoryTier1) {
     score += config.tier1Bonus;
   } else if (input.travelHistoryTier2) {
@@ -300,10 +154,10 @@ export function calculateVisaScore(
   } else if (input.travelHistoryTier3) {
     score += config.tier3Bonus;
   } else if (input.travelHistoryTier4) {
-    score += config.tier3Bonus; // tier4 uses same bonus as tier3
+    score += config.tier3Bonus;
   }
   
-  // Multi-country bonus: +2% per additional country in same tier (beyond the first)
+  // Multi-country bonus: +2% per additional country in same tier
   const tierCounts = [
     input.tier1CountryCount || 0,
     input.tier2CountryCount || 0,
@@ -316,14 +170,32 @@ export function calculateVisaScore(
     }
   }
   
-  // Add income bonus
-  score += config.incomeScores[input.yearlyIncome] || 0;
+  // Income bonus - for sponsored types, use the higher of applicant/sponsor income
+  if (isSponsoredType(input.employmentType) && input.sponsorYearlyIncome) {
+    const applicantIncome = config.incomeScores[input.yearlyIncome] || 0;
+    const sponsorIncome = config.incomeScores[input.sponsorYearlyIncome] || 0;
+    score += Math.max(applicantIncome, sponsorIncome);
+  } else {
+    score += config.incomeScores[input.yearlyIncome] || 0;
+  }
   
-  // Document completeness bonus: +2 per checked tier if all docs are complete
-  const isSalariedType = input.employmentType === 'salaried' || input.employmentType === 'salaried_sponsored';
-  const allDocsComplete = isSalariedType
-    ? !!(input.docSalarySlip && input.docItr3Years && input.docCompanyNoc && input.docPersonalBankStatement)
-    : !!(input.docCompanyRegistration && input.docBusinessItr3Years && input.docFirmBankStatement && input.docBusinessPersonalBankStatement);
+  // Document completeness bonus
+  const salariedType = isSalariedDocType(input.employmentType);
+  const sponsored = isSponsoredType(input.employmentType);
+  
+  let allDocsComplete: boolean;
+  if (sponsored) {
+    // For pure sponsored, check sponsor docs
+    allDocsComplete = !!(
+      input.docSponsorSalarySlip && input.docSponsorItr3Years && 
+      input.docSponsorCompanyNoc && input.docSponsorPersonalBankStatement &&
+      input.docSponsorCompanyRegistration && input.docSponsorFirmBankStatement
+    );
+  } else if (salariedType) {
+    allDocsComplete = !!(input.docSalarySlip && input.docItr3Years && input.docCompanyNoc && input.docPersonalBankStatement);
+  } else {
+    allDocsComplete = !!(input.docCompanyRegistration && input.docBusinessItr3Years && input.docFirmBankStatement && input.docBusinessPersonalBankStatement);
+  }
   
   if (allDocsComplete) {
     let tierBonus = 0;
@@ -333,15 +205,21 @@ export function calculateVisaScore(
     score += tierBonus;
   }
   
-  // Visa issued but not travelled penalty: -2%
-  if (input.visaIssuedNotTravelledCountry) {
+  // Visa issued but not travelled penalty: -2% per country
+  if (input.visaIssuedNotTravelledCountries && input.visaIssuedNotTravelledCountries.length > 0) {
+    score -= input.visaIssuedNotTravelledCountries.length * 2;
+  } else if (input.visaIssuedNotTravelledCountry) {
     score -= 2;
+  }
+  
+  // Sponsored (mother/father/husband) penalty: -5%
+  if (isSponsoredType(input.employmentType)) {
+    score -= 5;
   }
   
   // Cap at country's max score and floor at 0
   score = Math.max(0, Math.min(score, config.maxScore));
   
-  // Determine category
   let category: 'Low' | 'Medium' | 'High';
   if (score < 40) {
     category = 'Low';
@@ -352,6 +230,21 @@ export function calculateVisaScore(
   }
   
   return { score, category };
+}
+
+// Country suggestions for low/medium scores
+export function getCountrySuggestions(score: number, category: 'Low' | 'Medium' | 'High'): string[] {
+  if (category === 'High') return [];
+  
+  const suggestions: string[] = [];
+  if (score < 40) {
+    suggestions.push('Thailand (Visa on Arrival)', 'Malaysia (eNTRI / eVisa)', 'Sri Lanka (ETA)', 'Vietnam (e-Visa)', 'Indonesia (Visa on Arrival)');
+  } else if (score < 55) {
+    suggestions.push('Turkey (e-Visa)', 'Azerbaijan (ASAN Visa)', 'Georgia (Visa Free)', 'Thailand (Visa on Arrival)', 'Malaysia (eNTRI)');
+  } else if (score < 70) {
+    suggestions.push('Schengen Area', 'Turkey', 'South Korea', 'Japan', 'South Africa');
+  }
+  return suggestions;
 }
 
 export function getApprovalSuggestions(
@@ -381,6 +274,10 @@ export function getApprovalSuggestions(
   
   if (score >= 70) {
     suggestions.push('Your profile looks strong! Ensure all documents are accurate, complete, and match your application');
+  }
+  
+  if (isSponsoredType(input.employmentType)) {
+    suggestions.push('Sponsored applications have a 5% score deduction. Consider strengthening other factors like income and documents');
   }
   
   if (suggestions.length === 0) {
@@ -424,6 +321,8 @@ export const tier2Countries = [
   'South Korea',
   'Brazil',
   'Georgia',
+  'Switzerland',
+  'France',
 ];
 
 export const tier3Countries = [
@@ -438,16 +337,13 @@ export const tier3Countries = [
   'Other Asian Countries',
 ];
 
-export const tier4Countries = [
-  'Switzerland',
-  'France',
-];
+// tier4 is no longer needed since Switzerland/France moved to tier2
+export const tier4Countries: string[] = [];
 
 export const allTravelCountries = [
   ...tier1Countries,
   ...tier2Countries,
   ...tier3Countries,
-  ...tier4Countries,
 ];
 
 export const incomeRanges = [
