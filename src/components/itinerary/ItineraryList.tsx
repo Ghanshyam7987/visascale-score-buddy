@@ -19,7 +19,6 @@ interface Itinerary {
 export function ItineraryList() {
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedPdf, setSelectedPdf] = useState<string | null>(null);
 
   useEffect(() => {
     fetchItineraries();
@@ -101,13 +100,9 @@ export function ItineraryList() {
                 </div>
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedPdf(itinerary.pdf_url)}
-                    >
+                    <Button variant="outline" size="sm">
                       <Eye className="h-4 w-4 mr-1" />
-                      View
+                      Preview
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-4xl h-[80vh]">
@@ -115,10 +110,12 @@ export function ItineraryList() {
                       <DialogTitle>{itinerary.title}</DialogTitle>
                     </DialogHeader>
                     <div className="flex-1 h-full min-h-0">
+                      {/* Use Google Docs Viewer to prevent download */}
                       <iframe
-                        src={itinerary.pdf_url}
+                        src={`https://docs.google.com/gview?url=${encodeURIComponent(itinerary.pdf_url)}&embedded=true`}
                         className="w-full h-full rounded border"
                         title={itinerary.title}
+                        sandbox="allow-scripts allow-same-origin"
                       />
                     </div>
                   </DialogContent>

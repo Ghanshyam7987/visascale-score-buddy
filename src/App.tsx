@@ -12,6 +12,10 @@ import Profile from "./pages/Profile";
 import Itineraries from "./pages/Itineraries";
 import Events from "./pages/Events";
 import Admin from "./pages/Admin";
+import AdminLogin from "./pages/AdminLogin";
+import CoverLetter from "./pages/CoverLetter";
+import Noc from "./pages/Noc";
+import VisaNews from "./pages/VisaNews";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,8 +32,12 @@ const App = () => (
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/calculator" element={<Calculator />} />
             <Route path="/salary-slip" element={<SalarySlip />} />
+            <Route path="/cover-letter" element={<CoverLetter />} />
+            <Route path="/noc" element={<Noc />} />
             <Route path="/itineraries" element={<Itineraries />} />
             <Route path="/events" element={<Events />} />
+            <Route path="/visa-news" element={<VisaNews />} />
+            <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />

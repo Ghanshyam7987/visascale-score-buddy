@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Calculator, FileText, TrendingUp, Clock, Map, Calendar } from 'lucide-react';
+import { Calculator, FileText, TrendingUp, Clock, Map, Calendar, Newspaper, FileCheck, ScrollText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -12,8 +12,11 @@ const Dashboard = () => {
   const quickActions = [
     { path: '/calculator', icon: Calculator, title: 'Calculate VisaScore', desc: 'Check your approval chances', color: 'bg-primary/10 text-primary' },
     { path: '/salary-slip', icon: FileText, title: 'Salary Slip', desc: 'Generate PDF salary slip', color: 'bg-accent/10 text-accent' },
+    { path: '/cover-letter', icon: ScrollText, title: 'Cover Letter', desc: 'Generate visa cover letter', color: 'bg-primary/10 text-primary' },
+    { path: '/noc', icon: FileCheck, title: 'Parents NOC', desc: 'No Objection Certificate', color: 'bg-accent/10 text-accent' },
     { path: '/itineraries', icon: Map, title: 'Itineraries', desc: 'Browse travel itineraries', color: 'bg-secondary/10 text-secondary-foreground' },
     { path: '/events', icon: Calendar, title: 'Upcoming Events', desc: 'Worldwide travel events', color: 'bg-muted text-muted-foreground' },
+    { path: '/visa-news', icon: Newspaper, title: 'Visa News', desc: 'Latest visa updates', color: 'bg-primary/10 text-primary' },
   ];
 
   return (
@@ -43,7 +46,7 @@ const Dashboard = () => {
               key={action.path}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.1 }}
+              transition={{ delay: i * 0.05 }}
             >
               <Link to={action.path}>
                 <Card className="hover:shadow-lg transition-shadow">
