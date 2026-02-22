@@ -248,6 +248,42 @@ export type Database = {
         }
         Relationships: []
       }
+      visa_news: {
+        Row: {
+          content: string | null
+          country: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean | null
+          source_url: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          content?: string | null
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          source_url?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string | null
+          country?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          source_url?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       visa_score_calculations: {
         Row: {
           approval_category: string

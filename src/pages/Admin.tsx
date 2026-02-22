@@ -3,7 +3,8 @@ import { motion } from 'framer-motion';
 import { 
   Users, Calculator, FileText, Calendar, TrendingUp, 
   Shield, Loader2, Trash2, Eye, ToggleLeft, UserCheck, UserX,
-  Mail, Phone, CreditCard, CheckCircle, XCircle, Edit, Settings
+  Mail, Phone, CreditCard, CheckCircle, XCircle, Edit, Settings,
+  Newspaper
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -15,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { ItineraryUploadForm } from '@/components/admin/ItineraryUploadForm';
 import { EventForm } from '@/components/admin/EventForm';
+import { NewsForm } from '@/components/admin/NewsForm';
 import { VisaScoreConfigEditor } from '@/components/admin/VisaScoreConfigEditor';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -27,6 +29,7 @@ interface DashboardStats {
   totalItineraries: number;
   totalEvents: number;
   paidRegistrations: number;
+  totalNews: number;
 }
 
 interface Itinerary {
@@ -45,6 +48,15 @@ interface Event {
   event_date: string | null;
   is_active: boolean | null;
   location: string | null;
+}
+
+interface NewsItem {
+  id: string;
+  title: string;
+  content: string | null;
+  country: string | null;
+  is_active: boolean | null;
+  created_at: string;
 }
 
 interface UserProfile {
@@ -68,10 +80,12 @@ const Admin = () => {
     totalItineraries: 0,
     totalEvents: 0,
     paidRegistrations: 0,
+    totalNews: 0,
   });
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
@@ -89,12 +103,12 @@ const Admin = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch stats and data
-    const [profilesRes, itinerariesRes, eventsRes] = await Promise.all([
-      supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-      supabase.from('itineraries').select('*').order('created_at', { ascending: false }),
-      supabase.from('upcoming_events').select('*').order('event_date', { ascending: true }),
-    ]);
+      const [profilesRes, itinerariesRes, eventsRes, newsRes] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        supabase.from('itineraries').select('*').order('created_at', { ascending: false }),
+        supabase.from('upcoming_events').select('*').order('event_date', { ascending: true }),
+        supabase.from('visa_news').select('*').order('created_at', { ascending: false }),
+      ]);
 
       const profiles = profilesRes.data || [];
       const activeCount = profiles.filter(p => p.subscription_status === 'active').length;
@@ -106,11 +120,13 @@ const Admin = () => {
         totalItineraries: itinerariesRes.data?.length || 0,
         totalEvents: eventsRes.data?.length || 0,
         paidRegistrations: paidCount,
+        totalNews: newsRes.data?.length || 0,
       });
 
       setUsers(profiles);
       setItineraries(itinerariesRes.data || []);
       setEvents(eventsRes.data || []);
+      setNewsItems(newsRes.data || []);
     } catch (error) {
       console.error('Error fetching admin data:', error);
       toast.error('Failed to load admin data');
@@ -121,19 +137,15 @@ const Admin = () => {
 
   const handleDeleteItinerary = async (id: string, pdfUrl: string) => {
     if (!confirm('Are you sure you want to delete this itinerary?')) return;
-    
     setDeletingId(id);
     try {
-      // Extract file path from URL
       const urlParts = pdfUrl.split('/itineraries/');
       if (urlParts.length > 1) {
         const filePath = urlParts[1];
         await supabase.storage.from('itineraries').remove([filePath]);
       }
-
       const { error } = await supabase.from('itineraries').delete().eq('id', id);
       if (error) throw error;
-
       toast.success('Itinerary deleted');
       fetchData();
     } catch (error) {
@@ -146,12 +158,10 @@ const Admin = () => {
 
   const handleDeleteEvent = async (id: string) => {
     if (!confirm('Are you sure you want to delete this event?')) return;
-    
     setDeletingId(id);
     try {
       const { error } = await supabase.from('upcoming_events').delete().eq('id', id);
       if (error) throw error;
-
       toast.success('Event deleted');
       fetchData();
     } catch (error) {
@@ -168,14 +178,38 @@ const Admin = () => {
         .from('upcoming_events')
         .update({ is_active: !currentStatus })
         .eq('id', id);
-
       if (error) throw error;
-
       toast.success(`Event ${!currentStatus ? 'activated' : 'deactivated'}`);
       fetchData();
     } catch (error) {
       console.error('Toggle error:', error);
       toast.error('Failed to update event status');
+    }
+  };
+
+  const handleDeleteNews = async (id: string) => {
+    if (!confirm('Delete this news item?')) return;
+    setDeletingId(id);
+    try {
+      const { error } = await supabase.from('visa_news').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('News deleted');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete news');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleToggleNewsActive = async (id: string, currentStatus: boolean | null) => {
+    try {
+      const { error } = await supabase.from('visa_news').update({ is_active: !currentStatus }).eq('id', id);
+      if (error) throw error;
+      toast.success(`News ${!currentStatus ? 'activated' : 'deactivated'}`);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to update news status');
     }
   };
 
@@ -189,9 +223,7 @@ const Admin = () => {
     );
   }
 
-  if (!isAdmin) {
-    return null;
-  }
+  if (!isAdmin) return null;
 
   const statCards = [
     { label: 'Total Users', value: stats.totalUsers, icon: Users, color: 'text-primary' },
@@ -199,6 +231,7 @@ const Admin = () => {
     { label: 'Active Subscriptions', value: stats.activeSubscriptions, icon: TrendingUp, color: 'text-blue-500' },
     { label: 'Itineraries', value: stats.totalItineraries, icon: FileText, color: 'text-orange-500' },
     { label: 'Events', value: stats.totalEvents, icon: Calendar, color: 'text-purple-500' },
+    { label: 'Visa News', value: stats.totalNews, icon: Newspaper, color: 'text-primary' },
   ];
 
   return (
@@ -209,12 +242,7 @@ const Admin = () => {
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-3">
           {statCards.map((stat, i) => (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-            >
+            <motion.div key={stat.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
               <Card className="overflow-hidden">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
@@ -234,22 +262,26 @@ const Admin = () => {
 
         {/* Management Tabs */}
         <Tabs defaultValue="users" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="users" className="flex items-center gap-1 text-xs">
               <Users className="h-3.5 w-3.5" />
               Users
             </TabsTrigger>
             <TabsTrigger value="itineraries" className="flex items-center gap-1 text-xs">
               <FileText className="h-3.5 w-3.5" />
-              Itineraries
+              Itin.
             </TabsTrigger>
             <TabsTrigger value="events" className="flex items-center gap-1 text-xs">
               <Calendar className="h-3.5 w-3.5" />
               Events
             </TabsTrigger>
+            <TabsTrigger value="news" className="flex items-center gap-1 text-xs">
+              <Newspaper className="h-3.5 w-3.5" />
+              News
+            </TabsTrigger>
             <TabsTrigger value="visa-config" className="flex items-center gap-1 text-xs">
               <Settings className="h-3.5 w-3.5" />
-              Visa Score
+              Config
             </TabsTrigger>
           </TabsList>
 
@@ -264,31 +296,22 @@ const Admin = () => {
               </CardHeader>
               <CardContent className="space-y-3">
                 {users.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No users registered yet
-                  </p>
+                  <p className="text-sm text-muted-foreground text-center py-4">No users registered yet</p>
                 ) : (
                   users.map((user) => (
-                    <div 
-                      key={user.id} 
-                      className="p-4 rounded-lg bg-muted/50 space-y-3"
-                    >
+                    <div key={user.id} className="p-4 rounded-lg bg-muted/50 space-y-3">
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-base">
-                            {user.full_name || 'No Name'}
-                          </p>
+                          <p className="font-semibold text-base">{user.full_name || 'No Name'}</p>
                           <div className="flex flex-col gap-1 mt-1">
                             {user.email && (
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Mail className="h-3.5 w-3.5" />
-                                <span className="truncate">{user.email}</span>
+                                <Mail className="h-3.5 w-3.5" /><span className="truncate">{user.email}</span>
                               </div>
                             )}
                             {user.phone && (
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Phone className="h-3.5 w-3.5" />
-                                <span>{user.phone}</span>
+                                <Phone className="h-3.5 w-3.5" /><span>{user.phone}</span>
                               </div>
                             )}
                           </div>
@@ -297,53 +320,15 @@ const Admin = () => {
                           {format(new Date(user.created_at), 'dd MMM yyyy')}
                         </div>
                       </div>
-                      
                       <div className="flex flex-wrap gap-2">
-                        {/* Registration Status */}
-                        <Badge 
-                          variant={user.registration_paid ? 'default' : 'secondary'}
-                          className="flex items-center gap-1"
-                        >
-                          {user.registration_paid ? (
-                            <>
-                              <CheckCircle className="h-3 w-3" />
-                              Registration Paid
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="h-3 w-3" />
-                              Unpaid
-                            </>
-                          )}
+                        <Badge variant={user.registration_paid ? 'default' : 'secondary'} className="flex items-center gap-1">
+                          {user.registration_paid ? <><CheckCircle className="h-3 w-3" />Registration Paid</> : <><XCircle className="h-3 w-3" />Unpaid</>}
                         </Badge>
-                        
-                        {/* Subscription Status */}
-                        <Badge 
-                          variant={user.subscription_status === 'active' ? 'default' : 'outline'}
-                          className={`flex items-center gap-1 ${
-                            user.subscription_status === 'active' 
-                              ? 'bg-emerald-500 hover:bg-emerald-600' 
-                              : ''
-                          }`}
-                        >
-                          {user.subscription_status === 'active' ? (
-                            <>
-                              <UserCheck className="h-3 w-3" />
-                              Active Subscriber
-                            </>
-                          ) : (
-                            <>
-                              <UserX className="h-3 w-3" />
-                              {user.subscription_status || 'Inactive'}
-                            </>
-                          )}
+                        <Badge variant={user.subscription_status === 'active' ? 'default' : 'outline'} className={`flex items-center gap-1 ${user.subscription_status === 'active' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}`}>
+                          {user.subscription_status === 'active' ? <><UserCheck className="h-3 w-3" />Active Subscriber</> : <><UserX className="h-3 w-3" />{user.subscription_status || 'Inactive'}</>}
                         </Badge>
-                        
-                        {/* Subscription Expiry */}
                         {user.subscription_expires_at && (
-                          <Badge variant="outline" className="text-xs">
-                            Expires: {format(new Date(user.subscription_expires_at), 'dd MMM yyyy')}
-                          </Badge>
+                          <Badge variant="outline" className="text-xs">Expires: {format(new Date(user.subscription_expires_at), 'dd MMM yyyy')}</Badge>
                         )}
                       </div>
                     </div>
@@ -355,23 +340,16 @@ const Admin = () => {
 
           <TabsContent value="itineraries" className="space-y-4 mt-4">
             <ItineraryUploadForm onSuccess={fetchData} />
-            
-            {/* Itineraries List */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Uploaded Itineraries ({itineraries.length})</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {itineraries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No itineraries uploaded yet
-                  </p>
+                  <p className="text-sm text-muted-foreground text-center py-4">No itineraries uploaded yet</p>
                 ) : (
                   itineraries.map((itinerary) => (
-                    <div 
-                      key={itinerary.id} 
-                      className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
-                    >
+                    <div key={itinerary.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{itinerary.title}</p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -380,25 +358,11 @@ const Admin = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 ml-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => window.open(itinerary.pdf_url, '_blank')}
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => window.open(itinerary.pdf_url, '_blank')}>
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleDeleteItinerary(itinerary.id, itinerary.pdf_url)}
-                          disabled={deletingId === itinerary.id}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          {deletingId === itinerary.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteItinerary(itinerary.id, itinerary.pdf_url)} disabled={deletingId === itinerary.id} className="text-destructive hover:text-destructive">
+                          {deletingId === itinerary.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </Button>
                       </div>
                     </div>
@@ -409,77 +373,74 @@ const Admin = () => {
           </TabsContent>
 
           <TabsContent value="events" className="space-y-4 mt-4">
-            <EventForm 
-              onSuccess={() => {
-                fetchData();
-                setEditingEvent(null);
-              }} 
-              editEvent={editingEvent}
-              onCancelEdit={() => setEditingEvent(null)}
-            />
-            
-            {/* Events List */}
+            <EventForm onSuccess={() => { fetchData(); setEditingEvent(null); }} editEvent={editingEvent} onCancelEdit={() => setEditingEvent(null)} />
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">All Events ({events.length})</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {events.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No events added yet
-                  </p>
+                  <p className="text-sm text-muted-foreground text-center py-4">No events added yet</p>
                 ) : (
                   events.map((event) => (
-                    <div 
-                      key={event.id} 
-                      className={`p-3 rounded-lg bg-muted/50 ${editingEvent?.id === event.id ? 'ring-2 ring-primary' : ''}`}
-                    >
+                    <div key={event.id} className={`p-3 rounded-lg bg-muted/50 ${editingEvent?.id === event.id ? 'ring-2 ring-primary' : ''}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="font-medium truncate">{event.title}</p>
-                            <Badge variant={event.is_active ? 'default' : 'secondary'} className="text-xs">
-                              {event.is_active ? 'Active' : 'Inactive'}
-                            </Badge>
+                            <Badge variant={event.is_active ? 'default' : 'secondary'} className="text-xs">{event.is_active ? 'Active' : 'Inactive'}</Badge>
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                             {event.country && <span>{event.country}</span>}
-                            {event.event_date && (
-                              <span>• {format(new Date(event.event_date), 'dd MMM yyyy')}</span>
-                            )}
+                            {event.event_date && <span>• {format(new Date(event.event_date), 'dd MMM yyyy')}</span>}
                             {event.location && <span className="truncate">• {event.location}</span>}
                           </div>
-                          {event.description && (
-                            <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                              {event.description}
-                            </p>
-                          )}
+                          {event.description && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{event.description}</p>}
                         </div>
                         <div className="flex items-center gap-1 ml-2">
-                          <Switch
-                            checked={event.is_active ?? false}
-                            onCheckedChange={() => handleToggleEventActive(event.id, event.is_active)}
-                          />
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setEditingEvent(event)}
-                            className="text-primary hover:text-primary"
-                          >
-                            <Edit className="h-4 w-4" />
+                          <Switch checked={event.is_active ?? false} onCheckedChange={() => handleToggleEventActive(event.id, event.is_active)} />
+                          <Button size="sm" variant="ghost" onClick={() => setEditingEvent(event)} className="text-primary hover:text-primary"><Edit className="h-4 w-4" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteEvent(event.id)} disabled={deletingId === event.id} className="text-destructive hover:text-destructive">
+                            {deletingId === event.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDeleteEvent(event.id)}
-                            disabled={deletingId === event.id}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            {deletingId === event.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* News Tab */}
+          <TabsContent value="news" className="space-y-4 mt-4">
+            <NewsForm onSuccess={fetchData} />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">All News ({newsItems.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {newsItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No news added yet</p>
+                ) : (
+                  newsItems.map((item) => (
+                    <div key={item.id} className="p-3 rounded-lg bg-muted/50">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{item.title}</p>
+                            <Badge variant={item.is_active ? 'default' : 'secondary'} className="text-xs">{item.is_active ? 'Active' : 'Inactive'}</Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                            {item.country && <span>{item.country}</span>}
+                            <span>• {format(new Date(item.created_at), 'dd MMM yyyy')}</span>
+                          </div>
+                          {item.content && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{item.content}</p>}
+                        </div>
+                        <div className="flex items-center gap-1 ml-2">
+                          <Switch checked={item.is_active ?? false} onCheckedChange={() => handleToggleNewsActive(item.id, item.is_active)} />
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteNews(item.id)} disabled={deletingId === item.id} className="text-destructive hover:text-destructive">
+                            {deletingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                           </Button>
                         </div>
                       </div>

@@ -1,23 +1,18 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calculator, FileText, User, Shield, Home, MapPin, CalendarDays } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { Calculator, User, Home, MapPin, CalendarDays, Newspaper } from 'lucide-react';
 
 export function BottomNav() {
   const location = useLocation();
-  const { isAdmin } = useAuth();
 
   const navItems = [
     { path: '/dashboard', icon: Home, label: 'Home' },
     { path: '/calculator', icon: Calculator, label: 'VisaScore' },
     { path: '/itineraries', icon: MapPin, label: 'Itineraries' },
     { path: '/events', icon: CalendarDays, label: 'Events' },
+    { path: '/visa-news', icon: Newspaper, label: 'News' },
     { path: '/profile', icon: User, label: 'Profile' },
   ];
-
-  if (isAdmin) {
-    navItems.push({ path: '/admin', icon: Shield, label: 'Admin' });
-  }
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border safe-area-pb">
@@ -38,12 +33,12 @@ export function BottomNav() {
                 />
               )}
               <item.icon
-                className={`h-6 w-6 transition-colors ${
+                className={`h-5 w-5 transition-colors ${
                   isActive ? 'text-primary' : 'text-muted-foreground'
                 }`}
               />
               <span
-                className={`text-xs mt-1 transition-colors ${
+                className={`text-[10px] mt-1 transition-colors ${
                   isActive ? 'text-primary font-medium' : 'text-muted-foreground'
                 }`}
               >
