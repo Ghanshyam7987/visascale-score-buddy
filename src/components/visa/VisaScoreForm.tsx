@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, Plane, ChevronRight, IndianRupee, Briefcase, FileText, Stamp } from 'lucide-react';
+import { Globe, Plane, ChevronRight, IndianRupee, Briefcase, FileText, Stamp, ChevronsUpDown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, allTravelCountries, getIncomeBracket, isSponsoredType, isSalariedDocType } from '@/lib/visaScoreCalculator';
 
@@ -123,12 +125,14 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   ];
 
   const getCurrentDocs = () => {
-    if (sponsored) return sponsorDocs;
-    if (salariedType) return salariedDocs;
-    return businessDocs;
+    if (employmentType === 'salaried_sponsored') return { applicantDocs: salariedDocs, sponsorDocs };
+    if (employmentType === 'self_business_sponsored') return { applicantDocs: businessDocs, sponsorDocs };
+    if (sponsored) return { applicantDocs: null, sponsorDocs };
+    if (salariedType) return { applicantDocs: salariedDocs, sponsorDocs: null };
+    return { applicantDocs: businessDocs, sponsorDocs: null };
   };
 
-  const currentDocs = getCurrentDocs();
+  const { applicantDocs, sponsorDocs: currentSponsorDocs } = getCurrentDocs();
 
   const renderTierCountries = (
     countries: string[],
@@ -158,39 +162,49 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     </div>
   );
 
-  const docsSection = {
-    title: sponsored ? 'Sponsor\'s Documents Available' : 'Documents Available',
-    icon: FileText,
-    subtitle: sponsored 
-      ? 'Tick applicable documents of sponsor person (Salaried & Business both)' 
-      : 'Complete all documents for bonus points',
-    content: (
-      <div className="space-y-3">
-        <div className="flex items-center space-x-3 pb-2 border-b border-border">
+  const renderDocGroup = (docs: typeof salariedDocs, groupTitle?: string) => (
+    <div className="space-y-3">
+      {groupTitle && <p className="text-xs font-semibold text-muted-foreground border-b border-border pb-1">{groupTitle}</p>}
+      <div className="flex items-center space-x-3 pb-2 border-b border-border">
+        <Checkbox
+          id={`selectAll-${groupTitle || 'main'}`}
+          checked={docs.every((doc) => doc.checked)}
+          onCheckedChange={(checked) => {
+            const val = checked === true;
+            docs.forEach((doc) => doc.onChange(val));
+          }}
+        />
+        <Label htmlFor={`selectAll-${groupTitle || 'main'}`} className="text-sm font-semibold cursor-pointer flex-1">
+          Select All
+        </Label>
+      </div>
+      {docs.map((doc) => (
+        <div key={doc.id} className="flex items-center space-x-3">
           <Checkbox
-            id="selectAll"
-            checked={currentDocs.every((doc) => doc.checked)}
-            onCheckedChange={(checked) => {
-              const val = checked === true;
-              currentDocs.forEach((doc) => doc.onChange(val));
-            }}
+            id={doc.id}
+            checked={doc.checked}
+            onCheckedChange={(checked) => doc.onChange(checked === true)}
           />
-          <Label htmlFor="selectAll" className="text-sm font-semibold cursor-pointer flex-1">
-            Select All
+          <Label htmlFor={doc.id} className="text-sm font-medium cursor-pointer flex-1">
+            {doc.label}
           </Label>
         </div>
-        {currentDocs.map((doc) => (
-          <div key={doc.id} className="flex items-center space-x-3">
-            <Checkbox
-              id={doc.id}
-              checked={doc.checked}
-              onCheckedChange={(checked) => doc.onChange(checked === true)}
-            />
-            <Label htmlFor={doc.id} className="text-sm font-medium cursor-pointer flex-1">
-              {doc.label}
-            </Label>
-          </div>
-        ))}
+      ))}
+    </div>
+  );
+
+  const docsSection = {
+    title: 'Documents Available',
+    icon: FileText,
+    subtitle: (employmentType === 'salaried_sponsored' || employmentType === 'self_business_sponsored')
+      ? 'Tick your documents + sponsor\'s documents'
+      : sponsored
+        ? 'Tick applicable documents of sponsor person (Salaried & Business both)'
+        : 'Complete all documents for bonus points',
+    content: (
+      <div className="space-y-5">
+        {applicantDocs && renderDocGroup(applicantDocs, (currentSponsorDocs ? 'Your Documents' : undefined))}
+        {currentSponsorDocs && renderDocGroup(currentSponsorDocs, (applicantDocs ? 'Sponsor\'s Documents' : undefined))}
       </div>
     ),
   };
@@ -294,23 +308,44 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       subtitle: 'Select countries where visa was issued but you didn\'t travel',
       content: (
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            {allTravelCountries.map((c) => (
-              <Label
-                key={c}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-all text-xs ${
-                  visaIssuedNotTravelledCountries.includes(c) ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border hover:border-destructive/50'
-                }`}
-              >
-                <Checkbox
-                  checked={visaIssuedNotTravelledCountries.includes(c)}
-                  onCheckedChange={() => toggleVisaIssuedCountry(c)}
-                  className="h-3.5 w-3.5"
-                />
-                {c}
-              </Label>
-            ))}
-          </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-full justify-between touch-target text-left font-normal">
+                {visaIssuedNotTravelledCountries.length > 0
+                  ? `${visaIssuedNotTravelledCountries.length} country/countries selected`
+                  : 'Select countries'}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+              <ScrollArea className="h-[250px] p-3">
+                <div className="space-y-2">
+                  {allTravelCountries.map((c) => (
+                    <div key={c} className="flex items-center space-x-3">
+                      <Checkbox
+                        id={`visa-issued-${c}`}
+                        checked={visaIssuedNotTravelledCountries.includes(c)}
+                        onCheckedChange={() => toggleVisaIssuedCountry(c)}
+                      />
+                      <Label htmlFor={`visa-issued-${c}`} className="text-sm cursor-pointer flex-1">{c}</Label>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </PopoverContent>
+          </Popover>
+          {visaIssuedNotTravelledCountries.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {visaIssuedNotTravelledCountries.map((c) => (
+                <span key={c} className="inline-flex items-center gap-1 rounded-full bg-destructive/10 text-destructive text-xs px-2.5 py-1 border border-destructive/20">
+                  {c}
+                  <button type="button" onClick={() => toggleVisaIssuedCountry(c)} className="hover:bg-destructive/20 rounded-full p-0.5">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           {visaIssuedNotTravelledCountries.length > 0 && (
             <p className="text-xs text-destructive pl-1">
               ⚠️ {visaIssuedNotTravelledCountries.length} country/countries selected — score will be reduced

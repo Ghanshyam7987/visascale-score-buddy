@@ -15,6 +15,8 @@ export interface CoverLetterData {
   dateOfDeparture: string;
   cities: { name: string; nights: number }[];
   documents: string[];
+  occupation?: string;
+  companyName?: string;
 }
 
 export const embassyAddresses: Record<string, Record<string, string>> = {
@@ -141,132 +143,137 @@ export const embassyAddresses: Record<string, Record<string, string>> = {
 
 export const visaCountries = Object.keys(embassyAddresses);
 
+function formatDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const day = d.getDate();
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const suffix = day === 1 || day === 21 || day === 31 ? 'st' : day === 2 || day === 22 ? 'nd' : day === 3 || day === 23 ? 'rd' : 'th';
+  return `${day}${suffix} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 export function generateCoverLetterPDF(data: CoverLetterData): void {
   const doc = new jsPDF();
-  let y = 20;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 20;
+  const usableWidth = pageWidth - margin * 2;
+  let y = 25;
 
-  // Date
+  const checkPage = (needed: number) => {
+    if (y + needed > 270) {
+      doc.addPage();
+      y = 25;
+    }
+  };
+
+  // Subject line - underlined and bold
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  const subjectText = 'Application for the Tourist Visa';
+  doc.text(`Subject: ${subjectText}`, margin, y);
+  const subjectStart = margin + doc.getTextWidth('Subject: ');
+  const subjectWidth = doc.getTextWidth(subjectText);
+  doc.line(subjectStart, y + 1, subjectStart + subjectWidth, y + 1);
+  y += 12;
+
+  // Dear Sir/Madam
   doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Date: ${data.date}`, 15, y);
+  doc.text('Dear Sir/Madam,', margin, y);
   y += 10;
 
-  // To Address
-  const addresses = embassyAddresses[data.country];
-  const addressKey = data.consularCity;
-  const address = addresses?.[addressKey] || '';
+  // Main paragraph with applicant details
+  const primary = data.applicants[0];
+  let mainPara = `I ${primary.name} Passport No. # ${primary.passportNumber}, wants to visit ${data.country} for tourism purpose`;
 
-  doc.text('To,', 15, y);
-  y += 6;
+  if (data.applicants.length > 1) {
+    const others = data.applicants.slice(1).map(a => `${a.name} Passport No.# ${a.passportNumber}`);
+    mainPara += ` along with ${others.join(', ')}`;
+  }
+
+  const arrivalFormatted = formatDate(data.dateOfArrival);
+  const departureFormatted = formatDate(data.dateOfDeparture);
+  if (arrivalFormatted && departureFormatted) {
+    mainPara += ` from ${arrivalFormatted} to ${departureFormatted}.`;
+  } else {
+    mainPara += '.';
+  }
+
+  const mainLines = doc.splitTextToSize(mainPara, usableWidth);
+  doc.text(mainLines, margin, y);
+  y += mainLines.length * 6 + 6;
+
+  // Occupation / financial statement
+  checkPage(20);
   doc.setFont('helvetica', 'bold');
-  doc.text(`The Visa Officer,`, 15, y);
-  y += 6;
-  doc.setFont('helvetica', 'normal');
-  const addressLines = address.split('\n');
-  addressLines.forEach((line) => {
-    doc.text(line, 15, y);
-    y += 6;
-  });
+  const occText = data.occupation && data.companyName
+    ? `I am ${data.occupation} in ${data.companyName} and have sufficient fund to cover all expenses. I will bear the cost of the entire trip${data.applicants.length > 1 ? ' for all of us' : ''}.`
+    : `I have sufficient fund to cover all expenses. I will bear the cost of the entire trip${data.applicants.length > 1 ? ' for all of us' : ''}.`;
+  const occLines = doc.splitTextToSize(occText, usableWidth);
+  doc.text(occLines, margin, y);
+  y += occLines.length * 6 + 8;
 
-  y += 6;
-
-  // Subject
-  doc.setFont('helvetica', 'bold');
-  doc.text(`Subject: Application for ${data.country} Tourist Visa`, 15, y);
-  y += 10;
-
-  // Body
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-
-  const applicantNames = data.applicants.map(a => a.name).join(', ');
-  doc.text('Respected Sir/Madam,', 15, y);
-  y += 8;
-
-  const bodyText = `I/We, ${applicantNames}, would like to apply for a tourist visa to ${data.country}. The details of the trip are as follows:`;
-  const bodyLines = doc.splitTextToSize(bodyText, 180);
-  doc.text(bodyLines, 15, y);
-  y += bodyLines.length * 6 + 4;
-
-  // Applicant details table
-  doc.setFont('helvetica', 'bold');
-  doc.text('Applicant Details:', 15, y);
-  y += 7;
-
-  doc.setFont('helvetica', 'normal');
-  data.applicants.forEach((applicant, i) => {
-    doc.text(`${i + 1}. ${applicant.name} - Passport No: ${applicant.passportNumber}`, 20, y);
-    y += 6;
-  });
-  y += 4;
-
-  // Travel details
-  doc.setFont('helvetica', 'bold');
-  doc.text('Travel Details:', 15, y);
-  y += 7;
-
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Date of Arrival: ${data.dateOfArrival}`, 20, y);
-  y += 6;
-  doc.text(`Date of Departure: ${data.dateOfDeparture}`, 20, y);
-  y += 8;
-
-  // Cities
-  doc.setFont('helvetica', 'bold');
-  doc.text('Itinerary:', 15, y);
-  y += 7;
-
-  doc.setFont('helvetica', 'normal');
-  data.cities.forEach((city, i) => {
-    doc.text(`${i + 1}. ${city.name} - ${city.nights} Night(s)`, 20, y);
-    y += 6;
-  });
-  y += 4;
-
-  // Documents
-  if (data.documents.length > 0) {
-    // Check if we need a new page
-    if (y > 240) {
-      doc.addPage();
-      y = 20;
-    }
-
+  // Stay / Itinerary
+  if (data.cities.length > 0 && data.cities.some(c => c.name)) {
+    checkPage(20);
     doc.setFont('helvetica', 'bold');
-    doc.text('Documents Attached:', 15, y);
-    y += 7;
+    doc.text(`Our Stay in ${data.country} will be following:-`, margin, y);
+    y += 8;
 
     doc.setFont('helvetica', 'normal');
-    data.documents.forEach((docName, i) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.text(`${i + 1}. ${docName}`, 20, y);
-      y += 6;
-    });
-    y += 4;
+    const itineraryStr = data.cities
+      .filter(c => c.name)
+      .map(c => `${String(c.nights).padStart(2, '0')} Nights ${c.name}`)
+      .join(' +');
+
+    doc.text('•', margin + 5, y);
+    const itinLines = doc.splitTextToSize(itineraryStr, usableWidth - 15);
+    doc.text(itinLines, margin + 12, y);
+    y += itinLines.length * 6 + 8;
   }
 
-  // Check page overflow for closing
-  if (y > 250) {
-    doc.addPage();
-    y = 20;
-  }
-
-  // Closing
-  doc.text('I/We kindly request you to grant the visa at the earliest convenience.', 15, y);
-  y += 10;
-  doc.text('Thanking You,', 15, y);
-  y += 6;
-  doc.text('Yours faithfully,', 15, y);
-  y += 10;
-
-  data.applicants.forEach((applicant) => {
+  // Documents
+  if (data.documents.length > 0 && data.documents.some(d => d.trim())) {
+    checkPage(25);
     doc.setFont('helvetica', 'bold');
-    doc.text(applicant.name, 15, y);
+    doc.text('Supporting visa application documents, I have enclosed with this letter:', margin, y);
+    y += 10;
+
+    doc.setFont('helvetica', 'normal');
+    data.documents.filter(d => d.trim()).forEach((docName) => {
+      checkPage(10);
+      doc.text('•', margin + 10, y);
+      const docLines = doc.splitTextToSize(docName, usableWidth - 25);
+      doc.text(docLines, margin + 18, y);
+      y += docLines.length * 6 + 2;
+    });
     y += 6;
+  }
+
+  // Closing paragraph
+  checkPage(30);
+  doc.setFont('helvetica', 'bold');
+  const closingText = `We are looking forward to Travel ${data.country}, Kindly consider the application and grant us the necessary VISA.`;
+  const closingLines = doc.splitTextToSize(closingText, usableWidth);
+  doc.text(closingLines, margin, y);
+  y += closingLines.length * 6 + 12;
+
+  // Thanking you
+  checkPage(40);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Thanking you,', pageWidth - margin - doc.getTextWidth('Thanking you,') - 10, y);
+  y += 6;
+  doc.text("You're faithfully,", pageWidth - margin - doc.getTextWidth("You're faithfully,") - 10, y);
+  y += 20;
+
+  // Applicant names bold
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  data.applicants.forEach((applicant) => {
+    checkPage(10);
+    doc.text(applicant.name.toUpperCase(), pageWidth - margin - doc.getTextWidth(applicant.name.toUpperCase()) - 10, y);
+    y += 8;
   });
 
-  // Save
-  doc.save(`Cover_Letter_${data.country}_${data.date}.pdf`);
+  doc.save(`Cover_Letter_${data.country}_${data.date.replace(/\//g, '-')}.pdf`);
 }
