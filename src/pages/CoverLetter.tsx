@@ -22,6 +22,8 @@ const CoverLetter = () => {
   const [dateOfDeparture, setDateOfDeparture] = useState('');
   const [cities, setCities] = useState<{ name: string; nights: number }[]>([{ name: '', nights: 1 }]);
   const [documents, setDocuments] = useState<string[]>(['']);
+  const [occupation, setOccupation] = useState('');
+  const [companyName, setCompanyName] = useState('');
 
   const addApplicant = () => setApplicants([...applicants, { name: '', passportNumber: '' }]);
   const removeApplicant = (i: number) => setApplicants(applicants.filter((_, idx) => idx !== i));
@@ -57,6 +59,8 @@ const CoverLetter = () => {
           dateOfDeparture,
           cities: cities.filter(c => c.name),
           documents: documents.filter(d => d.trim()),
+          occupation,
+          companyName,
         };
         generateCoverLetterPDF(data);
         toast({ title: 'PDF Generated!', description: 'Cover letter downloaded.' });
@@ -96,6 +100,14 @@ const CoverLetter = () => {
                   </Select>
                 </div>
               )}
+              <div className="space-y-2">
+                <Label>Your Occupation / Designation</Label>
+                <Input placeholder="e.g., Partner, Director, Employee" value={occupation} onChange={(e) => setOccupation(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Company / Firm Name</Label>
+                <Input placeholder="e.g., ENKAY INVESTMENTS" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+              </div>
             </CardContent>
           </Card>
         </motion.div>
