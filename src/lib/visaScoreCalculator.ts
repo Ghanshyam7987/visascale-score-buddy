@@ -62,6 +62,12 @@ export interface CountryScoreConfig {
   };
 }
 
+// Schengen-like config reused for new individual countries
+const schengenConfig: CountryScoreConfig = {
+  maxScore: 95, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
+  incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 18, above_17lac: 24 },
+};
+
 // Country-specific scoring configurations
 export const countryConfigs: Record<string, CountryScoreConfig> = {
   'United States of America': {
@@ -75,10 +81,6 @@ export const countryConfigs: Record<string, CountryScoreConfig> = {
   'United Kingdom': {
     maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
     incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 19, above_17lac: 24 },
-  },
-  'Schengen Area': {
-    maxScore: 95, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
-    incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 18, above_17lac: 24 },
   },
   'Australia': {
     maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
@@ -124,6 +126,35 @@ export const countryConfigs: Record<string, CountryScoreConfig> = {
     maxScore: 99, baseScore: 50, tier1Bonus: 20, tier2Bonus: 10, tier3Bonus: 5,
     incomeScores: { below_3lac: 0, '3_to_5lac': 5, '5_to_10lac': 10, '10_to_17lac': 20, above_17lac: 24 },
   },
+  // New Schengen individual countries — use schengen formula
+  'Austria': { ...schengenConfig },
+  'Belgium': { ...schengenConfig },
+  'Bulgaria': { ...schengenConfig },
+  'Croatia': { ...schengenConfig },
+  'Cyprus': { ...schengenConfig },
+  'Czech Republic': { ...schengenConfig },
+  'Denmark': { ...schengenConfig },
+  'Estonia': { ...schengenConfig },
+  'Finland': { ...schengenConfig },
+  'Germany': { ...schengenConfig },
+  'Greece': { ...schengenConfig },
+  'Hungary': { ...schengenConfig },
+  'Iceland': { ...schengenConfig },
+  'Italy': { ...schengenConfig },
+  'Latvia': { ...schengenConfig },
+  'Liechtenstein': { ...schengenConfig },
+  'Lithuania': { ...schengenConfig },
+  'Luxembourg': { ...schengenConfig },
+  'Malta': { ...schengenConfig },
+  'Netherlands': { ...schengenConfig },
+  'Norway': { ...schengenConfig },
+  'Poland': { ...schengenConfig },
+  'Portugal': { ...schengenConfig },
+  'Romania': { ...schengenConfig },
+  'Slovakia': { ...schengenConfig },
+  'Slovenia': { ...schengenConfig },
+  'Spain': { ...schengenConfig },
+  'Sweden': { ...schengenConfig },
 };
 
 const defaultConfig: CountryScoreConfig = {
@@ -185,7 +216,6 @@ export function calculateVisaScore(
   
   let allDocsComplete: boolean;
   if (sponsored) {
-    // For pure sponsored, check sponsor docs
     allDocsComplete = !!(
       input.docSponsorSalarySlip && input.docSponsorItr3Years && 
       input.docSponsorCompanyNoc && input.docSponsorPersonalBankStatement &&
@@ -242,7 +272,7 @@ export function getCountrySuggestions(score: number, category: 'Low' | 'Medium' 
   } else if (score < 55) {
     suggestions.push('Turkey (e-Visa)', 'Azerbaijan (ASAN Visa)', 'Georgia (Visa Free)', 'Thailand (Visa on Arrival)', 'Malaysia (eNTRI)');
   } else if (score < 70) {
-    suggestions.push('Schengen Area', 'Turkey', 'South Korea', 'Japan', 'South Africa');
+    suggestions.push('Italy', 'Spain', 'France', 'Turkey', 'South Korea', 'Japan', 'South Africa');
   }
   return suggestions;
 }
@@ -256,7 +286,7 @@ export function getApprovalSuggestions(
   if (!input.travelHistoryTier1 && !input.travelHistoryTier2 && !input.travelHistoryTier3) {
     suggestions.push('Build travel history by visiting visa-free or e-visa countries first');
   } else if (!input.travelHistoryTier1 && input.travelHistoryTier3) {
-    suggestions.push('Travel to major countries like US, UK, Canada, Schengen, Australia, NZ to boost your score significantly');
+    suggestions.push('Travel to major countries like US, UK, Canada, Australia, NZ to boost your score significantly');
   } else if (!input.travelHistoryTier1 && input.travelHistoryTier2) {
     suggestions.push('Consider traveling to major destinations like US, UK, Canada for maximum travel history bonus');
   }
@@ -287,13 +317,43 @@ export function getApprovalSuggestions(
   return suggestions.slice(0, 4);
 }
 
+// All destination countries for the frontend dropdown
 export const popularCountries = [
   'United States of America',
   'Canada',
-  'United Kingdom',
-  'Schengen Area',
   'Australia',
+  'United Kingdom',
   'New Zealand',
+  'Austria',
+  'Belgium',
+  'Bulgaria',
+  'Croatia',
+  'Cyprus',
+  'Czech Republic',
+  'Denmark',
+  'Estonia',
+  'Finland',
+  'Germany',
+  'Greece',
+  'Hungary',
+  'Iceland',
+  'Italy',
+  'Latvia',
+  'Liechtenstein',
+  'Lithuania',
+  'Luxembourg',
+  'Malta',
+  'Netherlands',
+  'Norway',
+  'Poland',
+  'Portugal',
+  'Romania',
+  'Slovakia',
+  'Slovenia',
+  'Spain',
+  'Sweden',
+  'Other European Countries',
+  'Ireland',
   'Japan',
   'South Africa',
   'South Korea',
@@ -301,8 +361,6 @@ export const popularCountries = [
   'Switzerland',
   'France',
   'Turkey',
-  'Ireland',
-  'Other European Countries',
 ];
 
 export const tier1Countries = [
@@ -311,7 +369,6 @@ export const tier1Countries = [
   'United States',
   'Canada',
   'United Kingdom',
-  'Schengen',
   'Other European Countries',
 ];
 
@@ -323,6 +380,36 @@ export const tier2Countries = [
   'Georgia',
   'Switzerland',
   'France',
+  'Austria',
+  'Belgium',
+  'Bulgaria',
+  'Croatia',
+  'Cyprus',
+  'Czech Republic',
+  'Denmark',
+  'Estonia',
+  'Finland',
+  'Germany',
+  'Greece',
+  'Hungary',
+  'Iceland',
+  'Ireland',
+  'Italy',
+  'Latvia',
+  'Liechtenstein',
+  'Lithuania',
+  'Luxembourg',
+  'Malta',
+  'Netherlands',
+  'Norway',
+  'Poland',
+  'Portugal',
+  'Romania',
+  'Slovakia',
+  'Slovenia',
+  'Spain',
+  'Sweden',
+  'Turkey',
 ];
 
 export const tier3Countries = [
@@ -334,10 +421,21 @@ export const tier3Countries = [
   'China',
   'Vietnam',
   'Azerbaijan',
+  'Tanzania',
+  'Ethiopia',
+  'Sri Lanka',
+  'Nepal',
+  'Bangladesh',
+  'Peru',
+  'Mexico',
+  'Zambia',
+  'Mauritius',
+  'Maldives',
+  'Other African Countries',
   'Other Asian Countries',
 ];
 
-// tier4 is no longer needed since Switzerland/France moved to tier2
+// tier4 is no longer needed
 export const tier4Countries: string[] = [];
 
 export const allTravelCountries = [

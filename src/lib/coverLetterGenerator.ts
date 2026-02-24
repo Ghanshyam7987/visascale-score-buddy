@@ -1,8 +1,37 @@
 import jsPDF from 'jspdf';
+import { allTravelCountries } from '@/lib/visaScoreCalculator';
+
+export const relationOptions = [
+  'My Mother', 'My Father', 'My Wife', 'My Husband',
+  'My Son', 'My Daughter', 'My Sister', 'My Brother',
+  'My Friend', 'My Brother in Law', 'My Sister in Law',
+  'My Mother in Law', 'My Father in Law',
+  'My Fiancé', 'My Fiancée',
+  'My Uncle', 'My Aunty', 'My Cousin', 'Relative',
+];
+
+export const coverLetterDocuments = [
+  'Original Passport',
+  'Completed Visa Application Form',
+  'Hotel Reservation',
+  'Return Tickets Itinerary',
+  'Photos (as per Specification)',
+  'Health Insurance',
+  'Bank Statement Personal (With Minimum Required Balance)',
+  'Bank Statement Company/Firm',
+  'Income Tax Return',
+  'Company/Firm GST Certificate',
+  'Company NOC',
+  'Salary Slip',
+  'Sponsorship Letter',
+  'Invitation Letter',
+  "Invitee's Documents",
+];
 
 export interface Applicant {
   name: string;
   passportNumber: string;
+  relation?: string; // only for co-applicants (index > 0)
 }
 
 export interface CoverLetterData {
@@ -141,7 +170,10 @@ export const embassyAddresses: Record<string, Record<string, string>> = {
   },
 };
 
-export const visaCountries = Object.keys(embassyAddresses);
+// Cover letter visa countries = embassy countries + all tier countries
+const embassyCountryNames = Object.keys(embassyAddresses);
+const allCoverLetterCountrySet = new Set([...embassyCountryNames, ...allTravelCountries]);
+export const visaCountries = Array.from(allCoverLetterCountrySet).sort();
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return '';
@@ -182,12 +214,15 @@ export function generateCoverLetterPDF(data: CoverLetterData): void {
   doc.text('Dear Sir/Madam,', margin, y);
   y += 10;
 
-  // Main paragraph with applicant details
+  // Main paragraph with applicant details including relations
   const primary = data.applicants[0];
   let mainPara = `I ${primary.name} Passport No. # ${primary.passportNumber}, wants to visit ${data.country} for tourism purpose`;
 
   if (data.applicants.length > 1) {
-    const others = data.applicants.slice(1).map(a => `${a.name} Passport No.# ${a.passportNumber}`);
+    const others = data.applicants.slice(1).map(a => {
+      const rel = a.relation ? ` (${a.relation})` : '';
+      return `${a.name} Passport No.# ${a.passportNumber}${rel}`;
+    });
     mainPara += ` along with ${others.join(', ')}`;
   }
 
@@ -224,7 +259,7 @@ export function generateCoverLetterPDF(data: CoverLetterData): void {
     const itineraryStr = data.cities
       .filter(c => c.name)
       .map(c => `${String(c.nights).padStart(2, '0')} Nights ${c.name}`)
-      .join(' +');
+      .join(' + ');
 
     doc.text('•', margin + 5, y);
     const itinLines = doc.splitTextToSize(itineraryStr, usableWidth - 15);
