@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Plus, Trash2, Download, Loader2, MapPin, Calendar, Plane } from 'lucide-react';
+import { FileText, Plus, Trash2, Download, Loader2, MapPin, Calendar, Plane, Search, ChevronsUpDown } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,42 +8,48 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { generateCoverLetterPDF, embassyAddresses, visaCountries, CoverLetterData, Applicant } from '@/lib/coverLetterGenerator';
+import { generateCoverLetterPDF, embassyAddresses, visaCountries, CoverLetterData, Applicant, relationOptions, coverLetterDocuments } from '@/lib/coverLetterGenerator';
 
 const CoverLetter = () => {
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
   const [country, setCountry] = useState('');
+  const [countrySearch, setCountrySearch] = useState('');
   const [consularCity, setConsularCity] = useState('');
   const [date, setDate] = useState(new Date().toLocaleDateString('en-IN'));
   const [applicants, setApplicants] = useState<Applicant[]>([{ name: '', passportNumber: '' }]);
   const [dateOfArrival, setDateOfArrival] = useState('');
   const [dateOfDeparture, setDateOfDeparture] = useState('');
   const [cities, setCities] = useState<{ name: string; nights: number }[]>([{ name: '', nights: 1 }]);
-  const [documents, setDocuments] = useState<string[]>(['']);
+  const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
   const [occupation, setOccupation] = useState('');
   const [companyName, setCompanyName] = useState('');
 
-  const addApplicant = () => setApplicants([...applicants, { name: '', passportNumber: '' }]);
+  const addApplicant = () => setApplicants([...applicants, { name: '', passportNumber: '', relation: '' }]);
   const removeApplicant = (i: number) => setApplicants(applicants.filter((_, idx) => idx !== i));
   const updateApplicant = (i: number, field: keyof Applicant, value: string) => {
     const updated = [...applicants];
-    updated[i][field] = value;
+    (updated[i] as any)[field] = value;
     setApplicants(updated);
   };
 
   const addCity = () => setCities([...cities, { name: '', nights: 1 }]);
   const removeCity = (i: number) => setCities(cities.filter((_, idx) => idx !== i));
 
-  const addDocument = () => setDocuments([...documents, '']);
-  const removeDocument = (i: number) => setDocuments(documents.filter((_, idx) => idx !== i));
+  const toggleDocument = (doc: string) => {
+    setSelectedDocuments(prev => prev.includes(doc) ? prev.filter(d => d !== doc) : [...prev, doc]);
+  };
 
   const addressOptions = country ? Object.keys(embassyAddresses[country] || {}) : [];
+  const filteredCountries = visaCountries.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase()));
 
   const handleGenerate = () => {
-    if (!country || !consularCity || applicants.some(a => !a.name || !a.passportNumber)) {
-      toast({ title: 'Missing Information', description: 'Please fill in country, consular office, and all applicant details.', variant: 'destructive' });
+    if (!country || applicants.some(a => !a.name || !a.passportNumber)) {
+      toast({ title: 'Missing Information', description: 'Please fill in country and all applicant details.', variant: 'destructive' });
       return;
     }
     setIsGenerating(true);
@@ -58,7 +64,7 @@ const CoverLetter = () => {
           dateOfArrival,
           dateOfDeparture,
           cities: cities.filter(c => c.name),
-          documents: documents.filter(d => d.trim()),
+          documents: selectedDocuments,
           occupation,
           companyName,
         };
@@ -86,12 +92,34 @@ const CoverLetter = () => {
               </div>
               <div className="space-y-2">
                 <Label>Visa Country</Label>
-                <Select value={country} onValueChange={(v) => { setCountry(v); setConsularCity(''); }}>
-                  <SelectTrigger><SelectValue placeholder="Select country" /></SelectTrigger>
-                  <SelectContent>{visaCountries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between text-left font-normal">
+                      {country || 'Select country'}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <div className="p-2 border-b border-border">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input placeholder="Search countries..." value={countrySearch} onChange={(e) => setCountrySearch(e.target.value)} className="pl-8 h-8 text-sm" />
+                      </div>
+                    </div>
+                    <ScrollArea className="h-[250px]">
+                      <div className="p-1">
+                        {filteredCountries.map(c => (
+                          <button key={c} type="button" className={`w-full text-left px-3 py-2 text-sm rounded-md hover:bg-accent transition-colors ${country === c ? 'bg-primary/10 text-primary font-medium' : ''}`}
+                            onClick={() => { setCountry(c); setConsularCity(''); setCountrySearch(''); }}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
               </div>
-              {country && (
+              {country && addressOptions.length > 0 && (
                 <div className="space-y-2">
                   <Label>Embassy / Consulate</Label>
                   <Select value={consularCity} onValueChange={setConsularCity}>
@@ -125,11 +153,19 @@ const CoverLetter = () => {
               {applicants.map((applicant, i) => (
                 <div key={i} className="p-3 rounded-lg bg-muted/50 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Applicant {i + 1}</span>
-                    {applicants.length > 1 && <Button size="sm" variant="ghost" onClick={() => removeApplicant(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                    <span className="text-sm font-medium">{i === 0 ? 'Main Applicant' : `Applicant ${i + 1}`}</span>
+                    {applicants.length > 1 && i > 0 && <Button size="sm" variant="ghost" onClick={() => removeApplicant(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
                   </div>
                   <Input placeholder="Full Name" value={applicant.name} onChange={(e) => updateApplicant(i, 'name', e.target.value)} />
                   <Input placeholder="Passport Number" value={applicant.passportNumber} onChange={(e) => updateApplicant(i, 'passportNumber', e.target.value)} />
+                  {i > 0 && (
+                    <Select value={applicant.relation || ''} onValueChange={(v) => updateApplicant(i, 'relation', v)}>
+                      <SelectTrigger><SelectValue placeholder="Select Relation" /></SelectTrigger>
+                      <SelectContent>
+                        {relationOptions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               ))}
             </CardContent>
@@ -155,7 +191,7 @@ const CoverLetter = () => {
           </Card>
         </motion.div>
 
-        {/* Cities */}
+        {/* Cities & Stay */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <Card>
             <CardHeader>
@@ -168,7 +204,10 @@ const CoverLetter = () => {
               {cities.map((city, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input placeholder="City Name" value={city.name} onChange={(e) => { const u = [...cities]; u[i].name = e.target.value; setCities(u); }} className="flex-1" />
-                  <Input type="number" min={1} value={city.nights} onChange={(e) => { const u = [...cities]; u[i].nights = parseInt(e.target.value) || 1; setCities(u); }} className="w-20" placeholder="Nights" />
+                  <div className="flex items-center gap-1">
+                    <Input type="number" min={1} value={city.nights} onChange={(e) => { const u = [...cities]; u[i].nights = parseInt(e.target.value) || 1; setCities(u); }} className="w-16 text-center" />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">Nights</span>
+                  </div>
                   {cities.length > 1 && <Button size="icon" variant="ghost" onClick={() => removeCity(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
                 </div>
               ))}
@@ -176,22 +215,28 @@ const CoverLetter = () => {
           </Card>
         </motion.div>
 
-        {/* Documents */}
+        {/* Documents - Dropdown checklist */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Attached Documents</CardTitle>
-                <Button size="sm" variant="outline" onClick={addDocument}><Plus className="h-4 w-4 mr-1" />Add</Button>
-              </div>
+              <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Attached Documents</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {documents.map((docItem, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input placeholder="e.g., Bank Statement, ITR, Passport Copy" value={docItem} onChange={(e) => { const u = [...documents]; u[i] = e.target.value; setDocuments(u); }} className="flex-1" />
-                  {documents.length > 1 && <Button size="icon" variant="ghost" onClick={() => removeDocument(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
-                </div>
-              ))}
+              <div className="space-y-2">
+                {coverLetterDocuments.map((doc) => (
+                  <div key={doc} className="flex items-center space-x-3">
+                    <Checkbox
+                      id={`cl-doc-${doc}`}
+                      checked={selectedDocuments.includes(doc)}
+                      onCheckedChange={() => toggleDocument(doc)}
+                    />
+                    <Label htmlFor={`cl-doc-${doc}`} className="text-sm cursor-pointer flex-1">{doc}</Label>
+                  </div>
+                ))}
+              </div>
+              {selectedDocuments.length > 0 && (
+                <p className="text-xs text-muted-foreground">{selectedDocuments.length} document(s) selected</p>
+              )}
             </CardContent>
           </Card>
         </motion.div>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, Plane, ChevronRight, IndianRupee, Briefcase, FileText, Stamp, ChevronsUpDown, X } from 'lucide-react';
+import { Globe, Plane, ChevronRight, IndianRupee, Briefcase, FileText, Stamp, ChevronsUpDown, X, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-import { VisaScoreInput, popularCountries, tier1Countries, tier2Countries, tier3Countries, allTravelCountries, getIncomeBracket, isSponsoredType, isSalariedDocType } from '@/lib/visaScoreCalculator';
+import { VisaScoreInput, popularCountries, allTravelCountries, getIncomeBracket, isSponsoredType, isSalariedDocType } from '@/lib/visaScoreCalculator';
+
+// Map each travel country to its tier for backend calculation
+import { tier1Countries, tier2Countries, tier3Countries } from '@/lib/visaScoreCalculator';
+
+function getTierForCountry(c: string): 1 | 2 | 3 {
+  if (tier1Countries.includes(c)) return 1;
+  if (tier2Countries.includes(c)) return 2;
+  return 3;
+}
 
 interface VisaScoreFormProps {
   onSubmit: (data: VisaScoreInput) => void;
@@ -19,10 +28,11 @@ interface VisaScoreFormProps {
 
 export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [country, setCountry] = useState('');
-  const [selectedTier1, setSelectedTier1] = useState<string[]>([]);
-  const [selectedTier2, setSelectedTier2] = useState<string[]>([]);
-  const [selectedTier3, setSelectedTier3] = useState<string[]>([]);
+  const [destinationSearch, setDestinationSearch] = useState('');
+  const [selectedTravelledCountries, setSelectedTravelledCountries] = useState<string[]>([]);
+  const [travelledSearch, setTravelledSearch] = useState('');
   const [visaIssuedNotTravelledCountries, setVisaIssuedNotTravelledCountries] = useState<string[]>([]);
+  const [visaIssuedSearch, setVisaIssuedSearch] = useState('');
   const [yearlyIncomeAmount, setYearlyIncomeAmount] = useState('');
   const [sponsorYearlyIncomeAmount, setSponsorYearlyIncomeAmount] = useState('');
   const [employmentType, setEmploymentType] = useState<VisaScoreInput['employmentType']>('salaried');
@@ -39,7 +49,7 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [docFirmBankStatement, setDocFirmBankStatement] = useState(false);
   const [docBusinessPersonalBankStatement, setDocBusinessPersonalBankStatement] = useState(false);
 
-  // Sponsor docs (combined salaried + business)
+  // Sponsor docs
   const [docSponsorSalarySlip, setDocSponsorSalarySlip] = useState(false);
   const [docSponsorItr3Years, setDocSponsorItr3Years] = useState(false);
   const [docSponsorCompanyNoc, setDocSponsorCompanyNoc] = useState(false);
@@ -47,14 +57,12 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [docSponsorCompanyRegistration, setDocSponsorCompanyRegistration] = useState(false);
   const [docSponsorFirmBankStatement, setDocSponsorFirmBankStatement] = useState(false);
 
-  const toggleCountryInTier = (country: string, selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => {
-    setSelected(prev => prev.includes(country) ? prev.filter(c => c !== country) : [...prev, country]);
+  const toggleTravelledCountry = (c: string) => {
+    setSelectedTravelledCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
   };
 
-  const toggleVisaIssuedCountry = (country: string) => {
-    setVisaIssuedNotTravelledCountries(prev =>
-      prev.includes(country) ? prev.filter(c => c !== country) : [...prev, country]
-    );
+  const toggleVisaIssuedCountry = (c: string) => {
+    setVisaIssuedNotTravelledCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
   };
 
   const sponsored = isSponsoredType(employmentType);
@@ -65,16 +73,22 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     e.preventDefault();
     const amount = Number(yearlyIncomeAmount) || 0;
     const sponsorAmount = Number(sponsorYearlyIncomeAmount) || 0;
+
+    // Derive tier counts from unified selection
+    const tier1Count = selectedTravelledCountries.filter(c => getTierForCountry(c) === 1).length;
+    const tier2Count = selectedTravelledCountries.filter(c => getTierForCountry(c) === 2).length;
+    const tier3Count = selectedTravelledCountries.filter(c => getTierForCountry(c) === 3).length;
+
     onSubmit({
       country,
       purpose: 'tourist',
-      travelHistoryTier1: selectedTier1.length > 0,
-      travelHistoryTier2: selectedTier2.length > 0,
-      travelHistoryTier3: selectedTier3.length > 0,
+      travelHistoryTier1: tier1Count > 0,
+      travelHistoryTier2: tier2Count > 0,
+      travelHistoryTier3: tier3Count > 0,
       travelHistoryTier4: false,
-      tier1CountryCount: selectedTier1.length,
-      tier2CountryCount: selectedTier2.length,
-      tier3CountryCount: selectedTier3.length,
+      tier1CountryCount: tier1Count,
+      tier2CountryCount: tier2Count,
+      tier3CountryCount: tier3Count,
       tier4CountryCount: 0,
       visaIssuedNotTravelled: visaIssuedNotTravelledCountries.length > 0,
       visaIssuedNotTravelledCountries,
@@ -114,7 +128,6 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     { id: 'bizPersonalBank', label: 'Personal Bank Statement', checked: docBusinessPersonalBankStatement, onChange: setDocBusinessPersonalBankStatement },
   ];
 
-  // Sponsor docs: combined salaried + business list
   const sponsorDocs = [
     { id: 'spSalarySlip', label: 'Sponsor Salary Slip', checked: docSponsorSalarySlip, onChange: setDocSponsorSalarySlip },
     { id: 'spItr3Years', label: 'Sponsor 3 Years ITR', checked: docSponsorItr3Years, onChange: setDocSponsorItr3Years },
@@ -133,34 +146,6 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   };
 
   const { applicantDocs, sponsorDocs: currentSponsorDocs } = getCurrentDocs();
-
-  const renderTierCountries = (
-    countries: string[],
-    selected: string[],
-    setSelected: React.Dispatch<React.SetStateAction<string[]>>,
-    tierLabel: string
-  ) => (
-    <div className="space-y-2">
-      <p className="text-xs font-semibold text-muted-foreground mb-2">{tierLabel}</p>
-      <div className="flex flex-wrap gap-2">
-        {countries.map((c) => (
-          <Label
-            key={c}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-all text-xs ${
-              selected.includes(c) ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/50'
-            }`}
-          >
-            <Checkbox
-              checked={selected.includes(c)}
-              onCheckedChange={() => toggleCountryInTier(c, selected, setSelected)}
-              className="h-3.5 w-3.5"
-            />
-            {c}
-          </Label>
-        ))}
-      </div>
-    </div>
-  );
 
   const renderDocGroup = (docs: typeof salariedDocs, groupTitle?: string) => (
     <div className="space-y-3">
@@ -192,6 +177,71 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       ))}
     </div>
   );
+
+  const renderSearchableCountryDropdown = (
+    allCountries: string[],
+    selected: string[],
+    toggle: (c: string) => void,
+    search: string,
+    setSearch: (s: string) => void,
+    placeholder: string,
+  ) => {
+    const filtered = allCountries.filter(c => c.toLowerCase().includes(search.toLowerCase()));
+    return (
+      <div className="space-y-3">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-full justify-between touch-target text-left font-normal">
+              {selected.length > 0
+                ? `${selected.length} country/countries selected`
+                : placeholder}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+            <div className="p-2 border-b border-border">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search countries..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+            </div>
+            <ScrollArea className="h-[250px] p-3">
+              <div className="space-y-2">
+                {filtered.map((c) => (
+                  <div key={c} className="flex items-center space-x-3">
+                    <Checkbox
+                      id={`dd-${placeholder}-${c}`}
+                      checked={selected.includes(c)}
+                      onCheckedChange={() => toggle(c)}
+                    />
+                    <Label htmlFor={`dd-${placeholder}-${c}`} className="text-sm cursor-pointer flex-1">{c}</Label>
+                  </div>
+                ))}
+                {filtered.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No countries found</p>}
+              </div>
+            </ScrollArea>
+          </PopoverContent>
+        </Popover>
+        {selected.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {selected.map((c) => (
+              <span key={c} className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2.5 py-1 border border-primary/20">
+                {c}
+                <button type="button" onClick={() => toggle(c)} className="hover:bg-primary/20 rounded-full p-0.5">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const docsSection = {
     title: 'Documents Available',
@@ -252,21 +302,50 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     ),
   };
 
+  // Destination country with search
+  const filteredDestinations = popularCountries.filter(c => c.toLowerCase().includes(destinationSearch.toLowerCase()));
+
   const formSections = [
     {
       title: 'Destination Country',
       icon: Globe,
       content: (
-        <Select value={country} onValueChange={setCountry} required>
-          <SelectTrigger className="w-full touch-target">
-            <SelectValue placeholder="Select country" />
-          </SelectTrigger>
-          <SelectContent>
-            {popularCountries.map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-full justify-between touch-target text-left font-normal">
+              {country || 'Select country'}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+            <div className="p-2 border-b border-border">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search countries..."
+                  value={destinationSearch}
+                  onChange={(e) => setDestinationSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+            </div>
+            <ScrollArea className="h-[250px]">
+              <div className="p-1">
+                {filteredDestinations.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`w-full text-left px-3 py-2 text-sm rounded-md hover:bg-accent transition-colors ${country === c ? 'bg-primary/10 text-primary font-medium' : ''}`}
+                    onClick={() => { setCountry(c); setDestinationSearch(''); }}
+                  >
+                    {c}
+                  </button>
+                ))}
+                {filteredDestinations.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">No countries found</p>}
+              </div>
+            </ScrollArea>
+          </PopoverContent>
+        </Popover>
       ),
     },
     {
@@ -294,12 +373,13 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       title: 'Travel History',
       icon: Plane,
       subtitle: 'Select countries you have traveled to',
-      content: (
-        <div className="space-y-4">
-          {renderTierCountries(tier1Countries, selectedTier1, setSelectedTier1, 'Tier 1 — Major Countries')}
-          {renderTierCountries(tier2Countries, selectedTier2, setSelectedTier2, 'Tier 2 — Best of Schengen & Important Countries')}
-          {renderTierCountries(tier3Countries, selectedTier3, setSelectedTier3, 'Tier 3 — Asian & Other Countries')}
-        </div>
+      content: renderSearchableCountryDropdown(
+        allTravelCountries,
+        selectedTravelledCountries,
+        toggleTravelledCountry,
+        travelledSearch,
+        setTravelledSearch,
+        'Select travelled countries',
       ),
     },
     {
@@ -308,43 +388,13 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       subtitle: 'Select countries where visa was issued but you didn\'t travel',
       content: (
         <div className="space-y-3">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="w-full justify-between touch-target text-left font-normal">
-                {visaIssuedNotTravelledCountries.length > 0
-                  ? `${visaIssuedNotTravelledCountries.length} country/countries selected`
-                  : 'Select countries'}
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-              <ScrollArea className="h-[250px] p-3">
-                <div className="space-y-2">
-                  {allTravelCountries.map((c) => (
-                    <div key={c} className="flex items-center space-x-3">
-                      <Checkbox
-                        id={`visa-issued-${c}`}
-                        checked={visaIssuedNotTravelledCountries.includes(c)}
-                        onCheckedChange={() => toggleVisaIssuedCountry(c)}
-                      />
-                      <Label htmlFor={`visa-issued-${c}`} className="text-sm cursor-pointer flex-1">{c}</Label>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </PopoverContent>
-          </Popover>
-          {visaIssuedNotTravelledCountries.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {visaIssuedNotTravelledCountries.map((c) => (
-                <span key={c} className="inline-flex items-center gap-1 rounded-full bg-destructive/10 text-destructive text-xs px-2.5 py-1 border border-destructive/20">
-                  {c}
-                  <button type="button" onClick={() => toggleVisaIssuedCountry(c)} className="hover:bg-destructive/20 rounded-full p-0.5">
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
+          {renderSearchableCountryDropdown(
+            allTravelCountries,
+            visaIssuedNotTravelledCountries,
+            toggleVisaIssuedCountry,
+            visaIssuedSearch,
+            setVisaIssuedSearch,
+            'Select countries',
           )}
           {visaIssuedNotTravelledCountries.length > 0 && (
             <p className="text-xs text-destructive pl-1">
