@@ -51,6 +51,7 @@ const VisaPhoto = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const autoProcessRef = useRef<Blob | null>(null);
 
   // Gyroscope / device orientation for leveler
   useEffect(() => {
@@ -91,7 +92,7 @@ const VisaPhoto = () => {
     }
   };
 
-  // File upload
+  // File upload — auto-trigger processing
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -103,6 +104,10 @@ const VisaPhoto = () => {
     setSourceImage(URL.createObjectURL(file));
     setResultImage(null);
     setMetadata(null);
+    // Auto-process after a brief delay to allow state to settle
+    setTimeout(() => {
+      autoProcessRef.current = file;
+    }, 100);
   };
 
   // Camera
@@ -138,6 +143,10 @@ const VisaPhoto = () => {
         setSourceImage(URL.createObjectURL(blob));
         setResultImage(null);
         setMetadata(null);
+        // Auto-process after capture
+        setTimeout(() => {
+          autoProcessRef.current = blob;
+        }, 100);
       }
     }, 'image/jpeg', 0.95);
     stopCamera();
@@ -152,6 +161,41 @@ const VisaPhoto = () => {
   useEffect(() => {
     return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
   }, []);
+
+  // Auto-process effect: triggers processing when autoProcessRef is set
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (autoProcessRef.current && !processing) {
+        const blob = autoProcessRef.current;
+        autoProcessRef.current = null;
+        // Trigger processing
+        setProcessing(true);
+        setResultImage(null);
+        setMetadata(null);
+
+        const opts: ProcessingOptions = {
+          dimensions: { width, height, unit },
+          faceCoveragePercent: faceCoverage,
+          sharpeningStrength: sharpening,
+        };
+
+        processVisaPhoto(blob, opts, (step, pct) => {
+          setProgressText(step);
+          setProgressPercent(pct);
+        }).then(result => {
+          setResultImage(result.imageDataUrl);
+          setMetadata(result.metadata);
+          toast.success('Photo processed successfully!');
+        }).catch(err => {
+          console.error(err);
+          toast.error('Processing failed. Try a clearer photo.');
+        }).finally(() => {
+          setProcessing(false);
+        });
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [processing, width, height, unit, faceCoverage, sharpening]);
 
   // Process
   const handleProcess = useCallback(async () => {
@@ -232,7 +276,7 @@ const VisaPhoto = () => {
                 <div className="absolute top-8 left-0 right-0 flex justify-center pointer-events-none">
                   <div className="bg-black/60 backdrop-blur-sm rounded-full px-5 py-2.5">
                     <p className="text-white text-sm font-medium text-center">
-                      Look straight, do not smile, and remove glasses
+                      Look straight. Neutral face. Remove glasses.
                     </p>
                   </div>
                 </div>
