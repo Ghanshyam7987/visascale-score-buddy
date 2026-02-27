@@ -78,8 +78,43 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Compress image to max ~1.5MB before sending to edge function.
+ * Prevents timeout from oversized payloads.
+ */
+async function compressForUpload(blob: Blob, maxSizeKB = 1500): Promise<Blob> {
+  if (blob.size / 1024 <= maxSizeKB) return blob;
+
+  const img = await loadImage(URL.createObjectURL(blob));
+  const canvas = document.createElement('canvas');
+
+  // Scale down if very large
+  let w = img.naturalWidth;
+  let h = img.naturalHeight;
+  const maxDim = 2400;
+  if (w > maxDim || h > maxDim) {
+    const ratio = maxDim / Math.max(w, h);
+    w = Math.round(w * ratio);
+    h = Math.round(h * ratio);
+  }
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+
+  // Try decreasing quality
+  let quality = 0.85;
+  let result: Blob | null = null;
+  while (quality >= 0.4) {
+    result = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', quality));
+    if (result && result.size / 1024 <= maxSizeKB) break;
+    quality -= 0.1;
+  }
+  return result || blob;
+}
+
 export async function removeBackground(imageBlob: Blob): Promise<string> {
-  const base64 = await blobToBase64(imageBlob);
+  const compressed = await compressForUpload(imageBlob);
+  const base64 = await blobToBase64(compressed);
 
   const { data, error } = await supabase.functions.invoke('remove-background', {
     body: { imageBase64: base64 },
