@@ -112,18 +112,145 @@ async function compressForUpload(blob: Blob, maxSizeKB = 1500): Promise<Blob> {
   return result || blob;
 }
 
+/**
+ * Client-side background removal fallback using skin/subject segmentation.
+ * Scans for non-background pixels and replaces background with pure white.
+ */
+async function removeBackgroundClientSide(imageBlob: Blob): Promise<string> {
+  const img = await loadImage(URL.createObjectURL(imageBlob));
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(img, 0, 0);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // Step 1: Build a foreground mask using edge detection + color similarity
+  // Sample background color from corners
+  const samplePoints = [
+    0, // top-left
+    (w - 1) * 4, // top-right
+    ((h - 1) * w) * 4, // bottom-left
+    ((h - 1) * w + w - 1) * 4, // bottom-right
+  ];
+  
+  let bgR = 0, bgG = 0, bgB = 0;
+  for (const idx of samplePoints) {
+    bgR += data[idx]; bgG += data[idx + 1]; bgB += data[idx + 2];
+  }
+  bgR /= 4; bgG /= 4; bgB /= 4;
+
+  // Create binary mask: 0 = background, 1 = foreground
+  const mask = new Uint8Array(w * h);
+  const colorThreshold = 45; // color distance threshold
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const dr = data[idx] - bgR;
+      const dg = data[idx + 1] - bgG;
+      const db = data[idx + 2] - bgB;
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (dist > colorThreshold) {
+        mask[y * w + x] = 1;
+      }
+    }
+  }
+
+  // Step 2: Flood fill from edges to find connected background regions
+  const visited = new Uint8Array(w * h);
+  const queue: number[] = [];
+
+  // Seed from all 4 edges
+  for (let x = 0; x < w; x++) {
+    if (!mask[x]) queue.push(x); // top row
+    if (!mask[(h - 1) * w + x]) queue.push((h - 1) * w + x); // bottom row
+  }
+  for (let y = 0; y < h; y++) {
+    if (!mask[y * w]) queue.push(y * w); // left col
+    if (!mask[y * w + w - 1]) queue.push(y * w + w - 1); // right col
+  }
+
+  // BFS flood fill
+  while (queue.length > 0) {
+    const pos = queue.pop()!;
+    if (visited[pos]) continue;
+    visited[pos] = 1;
+
+    const x = pos % w;
+    const y = Math.floor(pos / w);
+
+    const neighbors = [];
+    if (x > 0) neighbors.push(pos - 1);
+    if (x < w - 1) neighbors.push(pos + 1);
+    if (y > 0) neighbors.push(pos - w);
+    if (y < h - 1) neighbors.push(pos + w);
+
+    for (const n of neighbors) {
+      if (!visited[n] && !mask[n]) {
+        queue.push(n);
+      }
+    }
+  }
+
+  // Step 3: Replace background pixels with white
+  for (let i = 0; i < w * h; i++) {
+    if (visited[i]) {
+      const idx = i * 4;
+      data[idx] = 255;
+      data[idx + 1] = 255;
+      data[idx + 2] = 255;
+      data[idx + 3] = 255;
+    }
+  }
+
+  // Step 4: Soften edges (simple 1px feathering on boundary)
+  const edgeData = new Uint8ClampedArray(data);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      // If foreground pixel next to background
+      if (!visited[i] && (visited[i-1] || visited[i+1] || visited[i-w] || visited[i+w])) {
+        const idx = i * 4;
+        edgeData[idx] = Math.round(data[idx] * 0.7 + 255 * 0.3);
+        edgeData[idx+1] = Math.round(data[idx+1] * 0.7 + 255 * 0.3);
+        edgeData[idx+2] = Math.round(data[idx+2] * 0.7 + 255 * 0.3);
+      }
+    }
+  }
+
+  ctx.putImageData(new ImageData(edgeData, w, h), 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.95);
+}
+
 export async function removeBackground(imageBlob: Blob): Promise<string> {
-  const compressed = await compressForUpload(imageBlob);
-  const base64 = await blobToBase64(compressed);
+  // Try server-side first with 30s timeout
+  try {
+    const compressed = await compressForUpload(imageBlob);
+    const base64 = await blobToBase64(compressed);
 
-  const { data, error } = await supabase.functions.invoke('remove-background', {
-    body: { imageBase64: base64 },
-  });
+    const result = await Promise.race([
+      supabase.functions.invoke('remove-background', {
+        body: { imageBase64: base64 },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 30000)
+      ),
+    ]);
 
-  if (error) throw new Error(`Background removal failed: ${error.message}`);
-  if (!data?.processedImage) throw new Error('No processed image returned');
-
-  return data.processedImage;
+    const { data, error } = result as any;
+    if (!error && data?.processedImage) {
+      return data.processedImage;
+    }
+    throw new Error(error?.message || 'No image returned');
+  } catch (err) {
+    console.warn('[VisaPhoto] Server BG removal failed, using client-side fallback:', err);
+    return removeBackgroundClientSide(imageBlob);
+  }
 }
 
 // ─── 2. Sharpening (Unsharp Mask — NO AI) ────────────────────────────
