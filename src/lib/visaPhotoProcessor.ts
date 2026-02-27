@@ -236,6 +236,7 @@ export async function processVisaPhoto(
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
+  console.log(`[VisaPhoto] Loaded image: ${canvas.width}x${canvas.height}`);
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0);
 
@@ -246,8 +247,36 @@ export async function processVisaPhoto(
 
   onProgress?.('Detecting face & cropping...', 80);
 
-  // Step 3: Detect face
-  const face = await detectFace(canvas);
+  // Step 3: Detect face - try on original source first for better detection
+  let face = await detectFace(canvas);
+  
+  // If face detection failed on processed image, try on original
+  if (!face) {
+    console.log('[VisaPhoto] Face not detected on processed image, trying original...');
+    const origImg = await loadImage(URL.createObjectURL(imageBlob));
+    const origCanvas = document.createElement('canvas');
+    origCanvas.width = origImg.naturalWidth;
+    origCanvas.height = origImg.naturalHeight;
+    const origCtx = origCanvas.getContext('2d')!;
+    origCtx.drawImage(origImg, 0, 0);
+    
+    // Scale face bounds if original and processed differ in size
+    const origFace = await detectFace(origCanvas);
+    if (origFace) {
+      const scaleX = canvas.width / origCanvas.width;
+      const scaleY = canvas.height / origCanvas.height;
+      face = {
+        x: origFace.x * scaleX,
+        y: origFace.y * scaleY,
+        width: origFace.width * scaleX,
+        height: origFace.height * scaleY,
+      };
+    }
+  }
+
+  if (face) {
+    console.log(`[VisaPhoto] Face detected: x=${face.x.toFixed(0)}, y=${face.y.toFixed(0)}, w=${face.width.toFixed(0)}, h=${face.height.toFixed(0)}`);
+  }
 
   if (!face) {
     onProgress?.('Face not detected, using center crop...', 85);
@@ -276,7 +305,7 @@ export async function processVisaPhoto(
     return out.toDataURL('image/jpeg', 0.95);
   }
 
-  // Step 4: Smart ICAO crop
+  // Step 4: Smart ICAO crop with face coverage
   const result = smartCrop(canvas, face, options);
 
   onProgress?.('Done!', 100);
