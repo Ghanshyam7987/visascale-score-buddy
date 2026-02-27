@@ -16,6 +16,7 @@ import AdminLogin from "./pages/AdminLogin";
 import CoverLetter from "./pages/CoverLetter";
 import Noc from "./pages/Noc";
 import VisaNews from "./pages/VisaNews";
+import VisaPhoto from "./pages/VisaPhoto";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/visa-news" element={<VisaNews />} />
             <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/visa-photo" element={<VisaPhoto />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
