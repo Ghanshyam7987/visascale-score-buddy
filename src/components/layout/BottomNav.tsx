@@ -11,7 +11,6 @@ export function BottomNav() {
     { path: '/itineraries', icon: MapPin, label: 'Itineraries' },
     { path: '/events', icon: CalendarDays, label: 'Events' },
     { path: '/visa-news', icon: Newspaper, label: 'News' },
-    { path: '/profile', icon: User, label: 'Profile' },
   ];
 
   return (
