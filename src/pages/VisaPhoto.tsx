@@ -11,7 +11,7 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
-import { processVisaPhoto, type ProcessingOptions } from '@/lib/visaPhotoProcessor';
+import { processVisaPhoto, type ProcessingOptions, type ProcessingMetadata } from '@/lib/visaPhotoProcessor';
 
 // Common passport photo presets
 const PRESETS = [
@@ -31,6 +31,7 @@ const VisaPhoto = () => {
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [sourceBlob, setSourceBlob] = useState<Blob | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<ProcessingMetadata | null>(null);
   const [processing, setProcessing] = useState(false);
   const [progressText, setProgressText] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
@@ -142,7 +143,8 @@ const VisaPhoto = () => {
         setProgressText(step);
         setProgressPercent(pct);
       });
-      setResultImage(result);
+      setResultImage(result.imageDataUrl);
+      setMetadata(result.metadata);
       toast.success('Photo processed successfully!');
     } catch (err) {
       console.error(err);
@@ -166,6 +168,7 @@ const VisaPhoto = () => {
     setSourceImage(null);
     setSourceBlob(null);
     setResultImage(null);
+    setMetadata(null);
     setProgressPercent(0);
     setProgressText('');
   };
@@ -400,6 +403,33 @@ const VisaPhoto = () => {
                 <p className="text-xs text-center text-muted-foreground">
                   {width}×{height} {unit} @ 300 DPI • White background • ICAO compliant
                 </p>
+                {metadata && (
+                  <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Requested Coverage</span>
+                      <span className="font-medium">{metadata.requestedCoverage}%</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Achieved Coverage</span>
+                      <span className="font-medium">{metadata.achievedCoverage}%</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Detection</span>
+                      <span className="font-medium capitalize">{metadata.detectionMethod === 'native' ? 'Face API' : metadata.detectionMethod === 'fallback' ? 'Skin Analysis' : 'None'}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Confidence</span>
+                      <span className={`font-medium capitalize ${metadata.confidence === 'high' ? 'text-green-600' : metadata.confidence === 'medium' ? 'text-yellow-600' : 'text-red-500'}`}>
+                        {metadata.confidence}
+                      </span>
+                    </div>
+                    {metadata.confidence === 'low' && (
+                      <p className="text-xs text-yellow-600 mt-1">
+                        💡 Try a clearer front-facing photo for more accurate head sizing.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-3">
                   <Button onClick={handleDownload} className="flex-1 gap-2">
                     <Download className="h-4 w-4" /> Download
