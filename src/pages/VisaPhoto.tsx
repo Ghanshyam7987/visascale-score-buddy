@@ -36,6 +36,8 @@ const VisaPhoto = () => {
   const [progressText, setProgressText] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [showCamera, setShowCamera] = useState(false);
+  const [tiltAngle, setTiltAngle] = useState(0);
+  const [isLevel, setIsLevel] = useState(true);
 
   // Dimensions
   const [preset, setPreset] = useState('Schengen (35×45 mm)');
@@ -49,6 +51,33 @@ const VisaPhoto = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Gyroscope / device orientation for leveler
+  useEffect(() => {
+    if (!showCamera) return;
+
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      // gamma = left-right tilt (-90 to 90)
+      const gamma = e.gamma ?? 0;
+      setTiltAngle(gamma);
+      setIsLevel(Math.abs(gamma) < 3);
+    };
+
+    // Try to request permission on iOS
+    if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+      (DeviceOrientationEvent as any).requestPermission().then((response: string) => {
+        if (response === 'granted') {
+          window.addEventListener('deviceorientation', handleOrientation);
+        }
+      }).catch(() => {});
+    } else {
+      window.addEventListener('deviceorientation', handleOrientation);
+    }
+
+    return () => {
+      window.removeEventListener('deviceorientation', handleOrientation);
+    };
+  }, [showCamera]);
 
   // Preset handler
   const handlePresetChange = (label: string) => {
@@ -73,6 +102,7 @@ const VisaPhoto = () => {
     setSourceBlob(file);
     setSourceImage(URL.createObjectURL(file));
     setResultImage(null);
+    setMetadata(null);
   };
 
   // Camera
@@ -107,6 +137,7 @@ const VisaPhoto = () => {
         setSourceBlob(blob);
         setSourceImage(URL.createObjectURL(blob));
         setResultImage(null);
+        setMetadata(null);
       }
     }, 'image/jpeg', 0.95);
     stopCamera();
@@ -131,6 +162,7 @@ const VisaPhoto = () => {
 
     setProcessing(true);
     setResultImage(null);
+    setMetadata(null);
 
     const options: ProcessingOptions = {
       dimensions: { width, height, unit },
@@ -178,7 +210,7 @@ const VisaPhoto = () => {
       <Header title="Visa Photo Tool" />
       <div className="p-4 pb-24 space-y-4 max-w-lg mx-auto">
 
-        {/* Camera Fullscreen */}
+        {/* Camera Fullscreen — NO silhouettes, with gyroscope leveler */}
         <AnimatePresence>
           {showCamera && (
             <motion.div
@@ -195,17 +227,39 @@ const VisaPhoto = () => {
                   muted
                   className="w-full h-full object-cover"
                 />
-                {/* Oval guide overlay */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-48 h-64 border-2 border-dashed border-white/60 rounded-[50%]" />
+
+                {/* Floating instruction text */}
+                <div className="absolute top-8 left-0 right-0 flex justify-center pointer-events-none">
+                  <div className="bg-black/60 backdrop-blur-sm rounded-full px-5 py-2.5">
+                    <p className="text-white text-sm font-medium text-center">
+                      Look straight, do not smile, and remove glasses
+                    </p>
+                  </div>
                 </div>
-                {/* Straightness guide lines */}
-                <div className="absolute inset-0 pointer-events-none">
-                  <div className="absolute top-1/3 left-0 right-0 h-px bg-white/20" />
-                  <div className="absolute top-2/3 left-0 right-0 h-px bg-white/20" />
-                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-white/20" />
+
+                {/* Gyroscope Leveler indicator */}
+                <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none">
+                  <div className="flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
+                    {/* Tilt bar */}
+                    <div className="w-32 h-1.5 bg-white/20 rounded-full relative overflow-hidden">
+                      <div
+                        className={`absolute top-0 h-full w-4 rounded-full transition-all duration-150 ${isLevel ? 'bg-green-400' : 'bg-red-400'}`}
+                        style={{
+                          left: `${Math.max(0, Math.min(100, 50 + tiltAngle * 2))}%`,
+                          transform: 'translateX(-50%)',
+                        }}
+                      />
+                      {/* Center mark */}
+                      <div className="absolute top-0 left-1/2 -translate-x-px w-0.5 h-full bg-white/50" />
+                    </div>
+                    <div className={`w-2.5 h-2.5 rounded-full ${isLevel ? 'bg-green-400' : 'bg-red-400'}`} />
+                    <span className={`text-xs font-medium ${isLevel ? 'text-green-400' : 'text-red-400'}`}>
+                      {isLevel ? 'Level' : 'Tilt'}
+                    </span>
+                  </div>
                 </div>
               </div>
+
               <div className="flex items-center justify-center gap-6 p-6 bg-black">
                 <Button variant="outline" onClick={stopCamera} className="text-white border-white/30">
                   Cancel
@@ -252,7 +306,7 @@ const VisaPhoto = () => {
         )}
 
         {/* Preview Source */}
-        {sourceImage && !resultImage && (
+        {sourceImage && !resultImage && !processing && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <Card>
               <CardContent className="p-4">
@@ -300,7 +354,7 @@ const VisaPhoto = () => {
                 {/* Dimensions */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5">
-                    <Label>Width</Label>
+                    <Label>Width ({unit})</Label>
                     <Input
                       type="number"
                       value={width}
@@ -308,7 +362,7 @@ const VisaPhoto = () => {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Height</Label>
+                    <Label>Height ({unit})</Label>
                     <Input
                       type="number"
                       value={height}
@@ -341,7 +395,7 @@ const VisaPhoto = () => {
                     step={1}
                   />
                   <p className="text-xs text-muted-foreground">
-                    ICAO standard: 60-80% of photo height
+                    Head height as % of photo height (ICAO: 60-80%)
                   </p>
                 </div>
 
@@ -378,7 +432,7 @@ const VisaPhoto = () => {
               </div>
               <Progress value={progressPercent} />
               <p className="text-xs text-muted-foreground text-center">
-                Background removal may take 15-30 seconds on first run (downloading model).
+                Background removal may take 15-30 seconds.
               </p>
             </CardContent>
           </Card>
@@ -415,7 +469,9 @@ const VisaPhoto = () => {
                     </div>
                     <div className="flex justify-between text-xs">
                       <span className="text-muted-foreground">Detection</span>
-                      <span className="font-medium capitalize">{metadata.detectionMethod === 'native' ? 'Face API' : metadata.detectionMethod === 'fallback' ? 'Skin Analysis' : 'None'}</span>
+                      <span className="font-medium capitalize">
+                        {metadata.detectionMethod === 'native' ? 'Face API' : metadata.detectionMethod === 'fallback' ? 'Skin Analysis' : 'None'}
+                      </span>
                     </div>
                     <div className="flex justify-between text-xs">
                       <span className="text-muted-foreground">Confidence</span>
