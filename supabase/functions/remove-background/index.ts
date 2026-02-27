@@ -40,7 +40,18 @@ serve(async (req) => {
             content: [
               {
                 type: "text",
-                text: "Remove the background from this photo and replace it with a solid pure white background (#FFFFFF). CRITICAL: Do NOT alter, modify, or enhance any facial features, skin texture, eyes, hair, or any part of the person. The person must remain EXACTLY as they are in the original photo - only the background should change to pure white. Return only the processed image.",
+                text: `You are a photo background removal tool. Your ONLY job is to replace the background with solid pure white (#FFFFFF).
+
+CRITICAL RULES:
+1. Keep the EXACT same image dimensions - do NOT crop or resize
+2. Keep the EXACT same person position, size, and framing
+3. Do NOT alter ANY facial features, skin, hair, eyes, clothing, or any part of the person
+4. Do NOT zoom in or zoom out
+5. ONLY change background pixels to pure white (#FFFFFF)
+6. The person must remain at the EXACT same position and scale as in the original
+7. Output image must have the SAME resolution as input
+
+Think of this as a mask operation: person stays identical, background becomes white.`,
               },
               {
                 type: "image_url",
@@ -62,9 +73,27 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    const resultImage = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    console.log("Response keys:", JSON.stringify(Object.keys(data)));
+    console.log("Choices structure:", JSON.stringify(data.choices?.map((c: any) => ({
+      hasImages: !!c.message?.images,
+      imageCount: c.message?.images?.length,
+      contentLength: c.message?.content?.length,
+    }))));
+
+    // Try multiple response formats
+    let resultImage = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    
+    if (!resultImage) {
+      // Check if image is in content array
+      const content = data.choices?.[0]?.message?.content;
+      if (Array.isArray(content)) {
+        const imgPart = content.find((p: any) => p.type === 'image_url');
+        resultImage = imgPart?.image_url?.url;
+      }
+    }
 
     if (!resultImage) {
+      console.error("Full response:", JSON.stringify(data).substring(0, 2000));
       throw new Error("No image returned from AI model");
     }
 
