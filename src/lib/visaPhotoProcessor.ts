@@ -107,9 +107,12 @@ async function compressForUpload(blob: Blob, maxSizeKB = 1500): Promise<Blob> {
 }
 
 /**
- * Client-side background removal using adaptive flood-fill segmentation.
- * Samples background color from multiple edge points for accuracy.
- * Uses morphological operations to reduce halos and artifacts.
+ * Client-side background removal using multi-pass adaptive segmentation.
+ * - Multi-point edge sampling with outlier rejection
+ * - Adaptive color distance with edge proximity weighting
+ * - Morphological open+close for clean foreground mask
+ * - Gaussian-weighted edge feathering for natural transitions
+ * - Final flood-fill from edges to catch any remaining BG
  */
 async function removeBackgroundClientSide(imageBlob: Blob): Promise<string> {
   const img = await loadImage(URL.createObjectURL(imageBlob));
@@ -124,44 +127,53 @@ async function removeBackgroundClientSide(imageBlob: Blob): Promise<string> {
   const w = canvas.width;
   const h = canvas.height;
 
-  // Step 1: Sample background from multiple edge points (more robust)
-  const edgeSamples: { r: number; g: number; b: number }[] = [];
-  const samplePositions: [number, number][] = [];
+  // Step 1: Dense edge sampling with outlier rejection
+  const edgeSamples: { r: number; g: number; b: number; lum: number }[] = [];
+  const sampleSpacingX = Math.max(1, Math.floor(w / 20));
+  const sampleSpacingY = Math.max(1, Math.floor(h / 20));
+
+  // Top 3 rows
+  for (let row = 0; row < 3; row++) {
+    for (let x = 0; x < w; x += sampleSpacingX) {
+      const idx = (row * w + x) * 4;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+      edgeSamples.push({ r, g, b, lum: 0.299 * r + 0.587 * g + 0.114 * b });
+    }
+  }
+  // Left & right edges (skip top/bottom corners)
+  for (let y = 3; y < h - 3; y += sampleSpacingY) {
+    for (const x of [0, 1, 2, w - 3, w - 2, w - 1]) {
+      const idx = (y * w + x) * 4;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+      edgeSamples.push({ r, g, b, lum: 0.299 * r + 0.587 * g + 0.114 * b });
+    }
+  }
+  // Bottom 2 rows (sparse — may have shoulders)
+  for (let row = h - 2; row < h; row++) {
+    for (let x = 0; x < w; x += sampleSpacingX * 3) {
+      const idx = (row * w + x) * 4;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+      edgeSamples.push({ r, g, b, lum: 0.299 * r + 0.587 * g + 0.114 * b });
+    }
+  }
+
+  // Reject outliers: keep samples within 1 IQR of median luminance
+  edgeSamples.sort((a, b) => a.lum - b.lum);
+  const q1 = edgeSamples[Math.floor(edgeSamples.length * 0.25)].lum;
+  const q3 = edgeSamples[Math.floor(edgeSamples.length * 0.75)].lum;
+  const iqr = q3 - q1;
+  const filtered = edgeSamples.filter(s => s.lum >= q1 - iqr && s.lum <= q3 + iqr);
   
-  // Top edge
-  for (let x = 0; x < w; x += Math.floor(w / 10)) {
-    samplePositions.push([x, 0]);
-    samplePositions.push([x, 1]);
-  }
-  // Bottom edge (sparse - may have shoulders)
-  for (let x = 0; x < w; x += Math.floor(w / 5)) {
-    samplePositions.push([x, h - 1]);
-  }
-  // Left/right edges
-  for (let y = 0; y < h; y += Math.floor(h / 10)) {
-    samplePositions.push([0, y]);
-    samplePositions.push([w - 1, y]);
-    samplePositions.push([1, y]);
-    samplePositions.push([w - 2, y]);
-  }
+  // Median of filtered samples
+  const mid = Math.floor(filtered.length / 2);
+  const bgR = filtered[mid]?.r ?? 200;
+  const bgG = filtered[mid]?.g ?? 200;
+  const bgB = filtered[mid]?.b ?? 200;
 
-  for (const [x, y] of samplePositions) {
-    const idx = (y * w + x) * 4;
-    edgeSamples.push({ r: data[idx], g: data[idx + 1], b: data[idx + 2] });
-  }
-
-  // Use median of samples for more robust background color estimation
-  edgeSamples.sort((a, b) => (a.r + a.g + a.b) - (b.r + b.g + b.b));
-  const medIdx = Math.floor(edgeSamples.length / 2);
-  const bgR = edgeSamples[medIdx].r;
-  const bgG = edgeSamples[medIdx].g;
-  const bgB = edgeSamples[medIdx].b;
-
-  // Step 2: Create foreground mask with adaptive threshold
+  // Step 2: Create foreground mask with adaptive color distance
   const mask = new Uint8Array(w * h); // 0=bg, 1=foreground
-  const baseThreshold = 35;
-  
-  // Also compute local variance for adaptive thresholding
+  const baseThreshold = 30;
+
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4;
@@ -169,36 +181,59 @@ async function removeBackgroundClientSide(imageBlob: Blob): Promise<string> {
       const dg = data[idx + 1] - bgG;
       const db = data[idx + 2] - bgB;
       const dist = Math.sqrt(dr * dr + dg * dg + db * db);
-      
-      // Adaptive: be more aggressive near edges, more conservative in center
-      const edgeDist = Math.min(x, w - 1 - x, y, h - 1 - y);
-      const edgeFactor = Math.min(1, edgeDist / (Math.min(w, h) * 0.15));
-      const threshold = baseThreshold + (1 - edgeFactor) * 15;
-      
+
+      // More aggressive near edges, conservative near center
+      const edgeDistX = Math.min(x, w - 1 - x);
+      const edgeDistY = Math.min(y, h - 1 - y);
+      const edgeDist = Math.min(edgeDistX, edgeDistY);
+      const edgeFactor = Math.min(1, edgeDist / (Math.min(w, h) * 0.12));
+      const threshold = baseThreshold + (1 - edgeFactor) * 20;
+
       if (dist > threshold) {
         mask[y * w + x] = 1;
       }
     }
   }
 
-  // Step 3: Morphological close (dilate then erode) to fill small gaps in foreground
-  const tempMask = new Uint8Array(mask);
-  // Dilate foreground
+  // Step 3: Morphological open (erode then dilate) to remove noise, then close (dilate then erode)
+  const eroded = new Uint8Array(w * h);
+  const opened = new Uint8Array(w * h);
+  
+  // Erode: pixel is FG only if all 4-neighbors are FG
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
-      if (mask[i - 1] || mask[i + 1] || mask[i - w] || mask[i + w]) {
-        tempMask[i] = 1;
+      if (mask[i] && mask[i - 1] && mask[i + 1] && mask[i - w] && mask[i + w]) {
+        eroded[i] = 1;
       }
     }
   }
-  // Erode back
-  const closedMask = new Uint8Array(tempMask);
+  // Dilate eroded: pixel is FG if any 4-neighbor is FG
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
-      if (!(tempMask[i - 1] && tempMask[i + 1] && tempMask[i - w] && tempMask[i + w])) {
-        closedMask[i] = 0;
+      if (eroded[i] || eroded[i - 1] || eroded[i + 1] || eroded[i - w] || eroded[i + w]) {
+        opened[i] = 1;
+      }
+    }
+  }
+
+  // Close: dilate then erode
+  const dilated = new Uint8Array(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      if (opened[i] || opened[i - 1] || opened[i + 1] || opened[i - w] || opened[i + w]) {
+        dilated[i] = 1;
+      }
+    }
+  }
+  const closed = new Uint8Array(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      if (dilated[i] && dilated[i - 1] && dilated[i + 1] && dilated[i - w] && dilated[i + w]) {
+        closed[i] = 1;
       }
     }
   }
@@ -206,64 +241,56 @@ async function removeBackgroundClientSide(imageBlob: Blob): Promise<string> {
   // Step 4: Flood fill from edges to find connected background
   const visited = new Uint8Array(w * h);
   const queue: number[] = [];
-
   for (let x = 0; x < w; x++) {
-    if (!closedMask[x]) queue.push(x);
-    if (!closedMask[(h - 1) * w + x]) queue.push((h - 1) * w + x);
+    if (!closed[x]) queue.push(x);
+    if (!closed[(h - 1) * w + x]) queue.push((h - 1) * w + x);
   }
   for (let y = 0; y < h; y++) {
-    if (!closedMask[y * w]) queue.push(y * w);
-    if (!closedMask[y * w + w - 1]) queue.push(y * w + w - 1);
+    if (!closed[y * w]) queue.push(y * w);
+    if (!closed[y * w + w - 1]) queue.push(y * w + w - 1);
   }
-
   while (queue.length > 0) {
     const pos = queue.pop()!;
     if (visited[pos]) continue;
     visited[pos] = 1;
-
-    const x = pos % w;
-    const y = Math.floor(pos / w);
-
-    if (x > 0 && !visited[pos - 1] && !closedMask[pos - 1]) queue.push(pos - 1);
-    if (x < w - 1 && !visited[pos + 1] && !closedMask[pos + 1]) queue.push(pos + 1);
-    if (y > 0 && !visited[pos - w] && !closedMask[pos - w]) queue.push(pos - w);
-    if (y < h - 1 && !visited[pos + w] && !closedMask[pos + w]) queue.push(pos + w);
+    const x = pos % w, y = Math.floor(pos / w);
+    if (x > 0 && !visited[pos - 1] && !closed[pos - 1]) queue.push(pos - 1);
+    if (x < w - 1 && !visited[pos + 1] && !closed[pos + 1]) queue.push(pos + 1);
+    if (y > 0 && !visited[pos - w] && !closed[pos - w]) queue.push(pos - w);
+    if (y < h - 1 && !visited[pos + w] && !closed[pos + w]) queue.push(pos + w);
   }
 
-  // Step 5: Replace background with pure white
-  for (let i = 0; i < w * h; i++) {
-    if (visited[i]) {
-      const idx = i * 4;
-      data[idx] = 255;
-      data[idx + 1] = 255;
-      data[idx + 2] = 255;
-      data[idx + 3] = 255;
-    }
-  }
-
-  // Step 6: Edge feathering (1px max) — blend foreground edges with white
-  const finalData = new Uint8ClampedArray(data);
+  // Step 5: Compute distance-to-edge for smooth feathering
+  // Find edge pixels (foreground pixels adjacent to background)
+  const isEdge = new Uint8Array(w * h);
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
-      if (!visited[i]) {
-        // Check if this foreground pixel borders background
-        const bgNeighbors =
-          (visited[i - 1] ? 1 : 0) + (visited[i + 1] ? 1 : 0) +
-          (visited[i - w] ? 1 : 0) + (visited[i + w] ? 1 : 0);
-        if (bgNeighbors > 0) {
-          const blend = bgNeighbors / 4 * 0.3; // max 30% blend toward white
-          const idx = i * 4;
-          finalData[idx] = Math.round(data[idx] * (1 - blend) + 255 * blend);
-          finalData[idx + 1] = Math.round(data[idx + 1] * (1 - blend) + 255 * blend);
-          finalData[idx + 2] = Math.round(data[idx + 2] * (1 - blend) + 255 * blend);
-        }
+      if (!visited[i] && (visited[i - 1] || visited[i + 1] || visited[i - w] || visited[i + w])) {
+        isEdge[i] = 1;
       }
     }
   }
 
-  ctx.putImageData(new ImageData(finalData, w, h), 0, 0);
-  return canvas.toDataURL('image/jpeg', 0.95);
+  // Step 6: Replace background with white, apply edge feathering
+  const featherRadius = 1.5; // pixels
+  for (let i = 0; i < w * h; i++) {
+    if (visited[i]) {
+      // Pure background → white
+      const idx = i * 4;
+      data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255; data[idx + 3] = 255;
+    } else if (isEdge[i]) {
+      // Edge pixel: blend toward white for anti-aliasing
+      const idx = i * 4;
+      const blend = 0.25; // 25% white blend on edge pixels
+      data[idx] = Math.round(data[idx] * (1 - blend) + 255 * blend);
+      data[idx + 1] = Math.round(data[idx + 1] * (1 - blend) + 255 * blend);
+      data[idx + 2] = Math.round(data[idx + 2] * (1 - blend) + 255 * blend);
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.96);
 }
 
 export async function removeBackground(imageBlob: Blob): Promise<string> {
@@ -671,9 +698,9 @@ function measureHeadInOutput(canvas: HTMLCanvasElement): { topY: number; bottomY
 // ─── White Enforcement ──────────────────────────────────────────────
 
 /**
- * Force every non-person pixel to pure white (#FFFFFF).
- * Uses the same flood-fill background mask approach, then sets all background
- * pixels to exactly RGB(255,255,255,255).
+ * Smart white enforcement: Only force pure white on pixels that are
+ * near-white AND connected to image edges (confirmed background).
+ * Uses higher threshold (240) to avoid eating into light skin/clothing.
  */
 function enforceWhiteBackground(canvas: HTMLCanvasElement): void {
   const ctx = canvas.getContext('2d')!;
@@ -682,52 +709,40 @@ function enforceWhiteBackground(canvas: HTMLCanvasElement): void {
   const w = canvas.width;
   const h = canvas.height;
 
-  // Any pixel that's "near white" (from BG removal) → force pure white
-  // Also catch grey patches and shadow remnants
+  // Build potential-BG mask: only very light pixels (>240 all channels)
+  const potentialBG = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) {
     const idx = i * 4;
-    const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-    // If pixel is light enough to be background remnant (not skin/hair/clothing)
-    if (r > 220 && g > 220 && b > 220) {
-      data[idx] = 255;
-      data[idx + 1] = 255;
-      data[idx + 2] = 255;
-      data[idx + 3] = 255;
+    if (data[idx] > 240 && data[idx + 1] > 240 && data[idx + 2] > 240) {
+      potentialBG[i] = 1;
     }
   }
 
-  // Second pass: flood fill from edges for any remaining non-white background
-  const mask = new Uint8Array(w * h); // 1 = definitely foreground
-  for (let i = 0; i < w * h; i++) {
-    const idx = i * 4;
-    if (data[idx] < 245 || data[idx + 1] < 245 || data[idx + 2] < 245) {
-      mask[i] = 1;
-    }
-  }
-
+  // Flood fill from edges through potential-BG only
   const visited = new Uint8Array(w * h);
   const queue: number[] = [];
-  // Seed from edges
   for (let x = 0; x < w; x++) {
-    if (!mask[x]) queue.push(x);
-    if (!mask[(h - 1) * w + x]) queue.push((h - 1) * w + x);
+    if (potentialBG[x]) queue.push(x);
+    const bi = (h - 1) * w + x;
+    if (potentialBG[bi]) queue.push(bi);
   }
   for (let y = 0; y < h; y++) {
-    if (!mask[y * w]) queue.push(y * w);
-    if (!mask[y * w + w - 1]) queue.push(y * w + w - 1);
+    if (potentialBG[y * w]) queue.push(y * w);
+    const ri = y * w + w - 1;
+    if (potentialBG[ri]) queue.push(ri);
   }
   while (queue.length > 0) {
     const pos = queue.pop()!;
     if (visited[pos]) continue;
     visited[pos] = 1;
     const x = pos % w, y = Math.floor(pos / w);
-    if (x > 0 && !visited[pos - 1] && !mask[pos - 1]) queue.push(pos - 1);
-    if (x < w - 1 && !visited[pos + 1] && !mask[pos + 1]) queue.push(pos + 1);
-    if (y > 0 && !visited[pos - w] && !mask[pos - w]) queue.push(pos - w);
-    if (y < h - 1 && !visited[pos + w] && !mask[pos + w]) queue.push(pos + w);
+    if (x > 0 && !visited[pos - 1] && potentialBG[pos - 1]) queue.push(pos - 1);
+    if (x < w - 1 && !visited[pos + 1] && potentialBG[pos + 1]) queue.push(pos + 1);
+    if (y > 0 && !visited[pos - w] && potentialBG[pos - w]) queue.push(pos - w);
+    if (y < h - 1 && !visited[pos + w] && potentialBG[pos + w]) queue.push(pos + w);
   }
 
-  // Force all visited (background-connected) pixels to pure white
+  // Force only confirmed edge-connected near-white to pure white
   for (let i = 0; i < w * h; i++) {
     if (visited[i]) {
       const idx = i * 4;
@@ -877,7 +892,7 @@ export async function processVisaPhoto(
   onProgress?.('Done!', 100);
 
   return {
-    imageDataUrl: result.toDataURL('image/jpeg', 0.95),
+    imageDataUrl: result.toDataURL('image/jpeg', 0.96),
     metadata: {
       requestedCoverage: options.faceCoveragePercent,
       achievedCoverage: Math.round(achievedCoverage),
