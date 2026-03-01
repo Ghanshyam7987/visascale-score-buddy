@@ -668,6 +668,76 @@ function measureHeadInOutput(canvas: HTMLCanvasElement): { topY: number; bottomY
   };
 }
 
+// ─── White Enforcement ──────────────────────────────────────────────
+
+/**
+ * Force every non-person pixel to pure white (#FFFFFF).
+ * Uses the same flood-fill background mask approach, then sets all background
+ * pixels to exactly RGB(255,255,255,255).
+ */
+function enforceWhiteBackground(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d')!;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // Any pixel that's "near white" (from BG removal) → force pure white
+  // Also catch grey patches and shadow remnants
+  for (let i = 0; i < w * h; i++) {
+    const idx = i * 4;
+    const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+    // If pixel is light enough to be background remnant (not skin/hair/clothing)
+    if (r > 220 && g > 220 && b > 220) {
+      data[idx] = 255;
+      data[idx + 1] = 255;
+      data[idx + 2] = 255;
+      data[idx + 3] = 255;
+    }
+  }
+
+  // Second pass: flood fill from edges for any remaining non-white background
+  const mask = new Uint8Array(w * h); // 1 = definitely foreground
+  for (let i = 0; i < w * h; i++) {
+    const idx = i * 4;
+    if (data[idx] < 245 || data[idx + 1] < 245 || data[idx + 2] < 245) {
+      mask[i] = 1;
+    }
+  }
+
+  const visited = new Uint8Array(w * h);
+  const queue: number[] = [];
+  // Seed from edges
+  for (let x = 0; x < w; x++) {
+    if (!mask[x]) queue.push(x);
+    if (!mask[(h - 1) * w + x]) queue.push((h - 1) * w + x);
+  }
+  for (let y = 0; y < h; y++) {
+    if (!mask[y * w]) queue.push(y * w);
+    if (!mask[y * w + w - 1]) queue.push(y * w + w - 1);
+  }
+  while (queue.length > 0) {
+    const pos = queue.pop()!;
+    if (visited[pos]) continue;
+    visited[pos] = 1;
+    const x = pos % w, y = Math.floor(pos / w);
+    if (x > 0 && !visited[pos - 1] && !mask[pos - 1]) queue.push(pos - 1);
+    if (x < w - 1 && !visited[pos + 1] && !mask[pos + 1]) queue.push(pos + 1);
+    if (y > 0 && !visited[pos - w] && !mask[pos - w]) queue.push(pos - w);
+    if (y < h - 1 && !visited[pos + w] && !mask[pos + w]) queue.push(pos + w);
+  }
+
+  // Force all visited (background-connected) pixels to pure white
+  for (let i = 0; i < w * h; i++) {
+    if (visited[i]) {
+      const idx = i * 4;
+      data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255; data[idx + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
 // ─── Full Pipeline ──────────────────────────────────────────────────
 
 export async function processVisaPhoto(
@@ -679,7 +749,7 @@ export async function processVisaPhoto(
   onProgress?.('Removing background...', 15);
   const processedImageUrl = await removeBackground(imageBlob);
 
-  onProgress?.('Loading processed image...', 50);
+  onProgress?.('Loading processed image...', 40);
   const img = await loadImage(processedImageUrl);
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth;
@@ -688,12 +758,12 @@ export async function processVisaPhoto(
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0);
 
-  // Step B: Mild Unsharp Mask (radius 1.2px, amount 1.0, threshold 2)
-  onProgress?.('Applying sharpening...', 60);
-  applySharpen(canvas, options.sharpeningStrength);
+  // Step A.2: Enforce pure white on all background pixels
+  onProgress?.('Enforcing white background...', 50);
+  enforceWhiteBackground(canvas);
 
-  // Step C: Detect face/head
-  onProgress?.('Detecting face...', 70);
+  // Step B: Detect face/head BEFORE sharpening (cleaner measurement)
+  onProgress?.('Detecting face...', 60);
   let detection = await detectHead(canvas);
 
   // If detection fails on processed image, try original
@@ -745,6 +815,8 @@ export async function processVisaPhoto(
       sy = 0;
     }
     outCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, targetW, targetH);
+    // Apply sharpening on final output
+    applySharpen(out, options.sharpeningStrength);
 
     onProgress?.('Done!', 100);
     return {
@@ -762,8 +834,8 @@ export async function processVisaPhoto(
   const { head, method } = detection;
   console.log(`[VisaPhoto] Head detected (${method}): top=${head.topOfHead.toFixed(0)}, chin=${head.bottomOfChin.toFixed(0)}, height=${head.headHeight.toFixed(0)}, centerX=${head.centerX.toFixed(0)}`);
 
-  // Step C (cont): ICAO Crop with iterative correction
-  onProgress?.('Cropping to ICAO standards...', 80);
+  // Step C: ICAO Crop with iterative correction
+  onProgress?.('Cropping to ICAO standards...', 75);
 
   let result: HTMLCanvasElement = icaoCrop(canvas, head, options);
   let measurement = measureHeadInOutput(result);
@@ -790,6 +862,13 @@ export async function processVisaPhoto(
 
     console.log(`[VisaPhoto] Iteration ${iterations}: requested=${options.faceCoveragePercent}%, achieved=${achievedCoverage.toFixed(1)}%, correction=${correctionFactor.toFixed(3)}`);
   }
+
+  // Step D: Apply mild sharpening AFTER crop (on final output only)
+  onProgress?.('Applying sharpening...', 90);
+  applySharpen(result, options.sharpeningStrength);
+
+  // Final white enforcement on output
+  enforceWhiteBackground(result);
 
   const confidence: ProcessingMetadata['confidence'] =
     method === 'native' ? 'high' :
