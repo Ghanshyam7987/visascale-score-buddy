@@ -580,6 +580,12 @@ function icaoCrop(
 
 // ─── 5. Post-crop Head Measurement ──────────────────────────────────
 
+/**
+ * Measure head in output using the SAME method as detectHeadBySkinAnalysis:
+ * - topY = absolute top of any non-white pixel in central 60% (hair/crown)
+ * - chinY = bottom of skin cluster (YCbCr) + small margin
+ * This ensures measurement is consistent with detection, so iterative correction converges.
+ */
 function measureHeadInOutput(canvas: HTMLCanvasElement): { topY: number; bottomY: number; heightPercent: number } {
   const ctx = canvas.getContext('2d')!;
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -587,58 +593,72 @@ function measureHeadInOutput(canvas: HTMLCanvasElement): { topY: number; bottomY
   const w = canvas.width;
   const h = canvas.height;
 
-  const xStart = Math.floor(w * 0.25);
-  const xEnd = Math.floor(w * 0.75);
+  const xStart = Math.floor(w * 0.2);
+  const xEnd = Math.floor(w * 0.8);
 
-  // Find topmost non-white pixel (top of hair/crown)
+  // 1. Find absolute top of subject (any non-white = hair/crown)
   let topY = h;
   for (let y = 0; y < h && topY === h; y++) {
     for (let x = xStart; x < xEnd; x++) {
       const idx = (y * w + x) * 4;
-      if (data[idx] < 240 || data[idx + 1] < 240 || data[idx + 2] < 240) {
+      if (data[idx] < 235 || data[idx + 1] < 235 || data[idx + 2] < 235) {
         topY = y;
         break;
       }
     }
   }
 
-  // Row density analysis
-  const rowDensity = new Float32Array(h);
-  for (let y = topY; y < h; y++) {
-    let count = 0;
+  // 2. Find chin using skin detection (YCbCr) — same as detectHeadBySkinAnalysis
+  const skinRows = new Float32Array(h);
+  const skinThreshold = (xEnd - xStart) * 0.02;
+
+  for (let y = topY; y < Math.min(h, topY + Math.floor((h - topY) * 0.85)); y++) {
     for (let x = xStart; x < xEnd; x++) {
       const idx = (y * w + x) * 4;
-      if (data[idx] < 240 || data[idx + 1] < 240 || data[idx + 2] < 240) {
-        count++;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+      // Skip white pixels
+      if (r > 240 && g > 240 && b > 240) continue;
+      const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+      const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+      if (cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) {
+        skinRows[y]++;
       }
     }
-    rowDensity[y] = count / (xEnd - xStart);
   }
 
-  // Find subject bottom
-  let subjectBottom = 0;
+  // Find bottom of skin cluster
+  let skinBottom = 0;
   for (let y = h - 1; y >= topY; y--) {
-    if (rowDensity[y] > 0.05) {
-      subjectBottom = y;
+    if (skinRows[y] > skinThreshold) {
+      skinBottom = y;
       break;
     }
   }
 
-  // Find neck = minimum density between 40-75% of subject extent
-  const subjectExtent = subjectBottom - topY;
-  const neckSearchStart = topY + Math.floor(subjectExtent * 0.4);
-  const neckSearchEnd = topY + Math.floor(subjectExtent * 0.75);
-
-  let minDensity = 1;
-  let neckY = neckSearchEnd;
-  for (let y = neckSearchStart; y < neckSearchEnd; y++) {
-    if (rowDensity[y] < minDensity && rowDensity[y] > 0) {
-      minDensity = rowDensity[y];
-      neckY = y;
+  // If no skin found, fall back to non-white scanning for chin
+  if (skinBottom <= topY) {
+    // Use row density fallback
+    for (let y = h - 1; y >= topY; y--) {
+      let count = 0;
+      for (let x = xStart; x < xEnd; x++) {
+        const idx = (y * w + x) * 4;
+        if (data[idx] < 235 || data[idx + 1] < 235 || data[idx + 2] < 235) count++;
+      }
+      if (count / (xEnd - xStart) > 0.05) {
+        // Find neck minimum above this to estimate chin
+        skinBottom = y;
+        break;
+      }
     }
+    // Estimate chin at ~55% of subject extent from top
+    const subjectExtent = skinBottom - topY;
+    const chinEstimate = topY + Math.floor(subjectExtent * 0.55);
+    return { topY, bottomY: chinEstimate, heightPercent: ((chinEstimate - topY) / h) * 100 };
   }
 
-  const chinY = neckY - Math.floor(subjectExtent * 0.02);
+  // Chin = bottom of skin + small margin for beard
+  const skinFaceHeight = skinBottom - topY;
+  const chinY = skinBottom + Math.floor(skinFaceHeight * 0.03);
   const headHeight = chinY - topY;
 
   return {
