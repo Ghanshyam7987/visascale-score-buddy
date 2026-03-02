@@ -57,6 +57,12 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
   const [docSponsorCompanyRegistration, setDocSponsorCompanyRegistration] = useState(false);
   const [docSponsorFirmBankStatement, setDocSponsorFirmBankStatement] = useState(false);
 
+  // Applicant docs (for pure sponsored types - mother/father/husband)
+  const [docApplicantBankStatement, setDocApplicantBankStatement] = useState(false);
+  const [docApplicantItr, setDocApplicantItr] = useState(false);
+  const [docApplicantPanCard, setDocApplicantPanCard] = useState(false);
+  const [docApplicantAadhaar, setDocApplicantAadhaar] = useState(false);
+
   const toggleTravelledCountry = (c: string) => {
     setSelectedTravelledCountries(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
   };
@@ -111,6 +117,10 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
       docSponsorPersonalBankStatement: sponsored ? docSponsorPersonalBankStatement : undefined,
       docSponsorCompanyRegistration: sponsored ? docSponsorCompanyRegistration : undefined,
       docSponsorFirmBankStatement: sponsored ? docSponsorFirmBankStatement : undefined,
+      docApplicantBankStatement: sponsored ? docApplicantBankStatement : undefined,
+      docApplicantItr: sponsored ? docApplicantItr : undefined,
+      docApplicantPanCard: sponsored ? docApplicantPanCard : undefined,
+      docApplicantAadhaar: sponsored ? docApplicantAadhaar : undefined,
     });
   };
 
@@ -137,15 +147,22 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     { id: 'spFirmBank', label: 'Sponsor Firm Bank Statement', checked: docSponsorFirmBankStatement, onChange: setDocSponsorFirmBankStatement },
   ];
 
+  const applicantSponsoredDocs = [
+    { id: 'appBankStatement', label: '6 Months Bank Statement', checked: docApplicantBankStatement, onChange: setDocApplicantBankStatement },
+    { id: 'appItr', label: 'Income Tax Return (ITR)', checked: docApplicantItr, onChange: setDocApplicantItr },
+    { id: 'appPanCard', label: 'PAN Card Copy', checked: docApplicantPanCard, onChange: setDocApplicantPanCard },
+    { id: 'appAadhaar', label: 'Aadhaar Card Copy', checked: docApplicantAadhaar, onChange: setDocApplicantAadhaar },
+  ];
+
   const getCurrentDocs = () => {
-    if (employmentType === 'salaried_sponsored') return { applicantDocs: salariedDocs, sponsorDocs };
-    if (employmentType === 'self_business_sponsored') return { applicantDocs: businessDocs, sponsorDocs };
-    if (sponsored) return { applicantDocs: null, sponsorDocs };
-    if (salariedType) return { applicantDocs: salariedDocs, sponsorDocs: null };
-    return { applicantDocs: businessDocs, sponsorDocs: null };
+    if (employmentType === 'salaried_sponsored') return { applicantDocs: salariedDocs, sponsorDocs, applicantExtraDocs: null };
+    if (employmentType === 'self_business_sponsored') return { applicantDocs: businessDocs, sponsorDocs, applicantExtraDocs: null };
+    if (sponsored) return { applicantDocs: null, sponsorDocs, applicantExtraDocs: applicantSponsoredDocs };
+    if (salariedType) return { applicantDocs: salariedDocs, sponsorDocs: null, applicantExtraDocs: null };
+    return { applicantDocs: businessDocs, sponsorDocs: null, applicantExtraDocs: null };
   };
 
-  const { applicantDocs, sponsorDocs: currentSponsorDocs } = getCurrentDocs();
+  const { applicantDocs, sponsorDocs: currentSponsorDocs, applicantExtraDocs } = getCurrentDocs();
 
   const renderDocGroup = (docs: typeof salariedDocs, groupTitle?: string) => (
     <div className="space-y-3">
@@ -249,12 +266,13 @@ export function VisaScoreForm({ onSubmit, isLoading }: VisaScoreFormProps) {
     subtitle: (employmentType === 'salaried_sponsored' || employmentType === 'self_business_sponsored')
       ? 'Tick your documents + sponsor\'s documents'
       : sponsored
-        ? 'Tick applicable documents of sponsor person (Salaried & Business both)'
+        ? 'Tick applicable documents of applicant & sponsor'
         : 'Complete all documents for bonus points',
     content: (
       <div className="space-y-5">
+        {applicantExtraDocs && renderDocGroup(applicantExtraDocs, 'Applicant\'s Documents')}
         {applicantDocs && renderDocGroup(applicantDocs, (currentSponsorDocs ? 'Your Documents' : undefined))}
-        {currentSponsorDocs && renderDocGroup(currentSponsorDocs, (applicantDocs ? 'Sponsor\'s Documents' : undefined))}
+        {currentSponsorDocs && renderDocGroup(currentSponsorDocs, (applicantDocs || applicantExtraDocs ? 'Sponsor\'s Documents' : undefined))}
       </div>
     ),
   };
