@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Calculator, FileText, TrendingUp, Clock, Map, Calendar, Newspaper, FileCheck, ScrollText, Camera } from 'lucide-react';
+import { Calculator, FileText, TrendingUp, Clock, Map, Calendar, Newspaper, FileCheck, ScrollText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -16,7 +16,6 @@ const Dashboard = () => {
     { path: '/noc', icon: FileCheck, title: 'Parents NOC', desc: 'No Objection Certificate', color: 'bg-accent/10 text-accent' },
     { path: '/itineraries', icon: Map, title: 'Itineraries', desc: 'Browse travel itineraries', color: 'bg-secondary/10 text-secondary-foreground' },
     { path: '/events', icon: Calendar, title: 'Upcoming Events', desc: 'Worldwide travel events', color: 'bg-muted text-muted-foreground' },
-    { path: '/visa-photo', icon: Camera, title: 'Visa Photo', desc: 'Crop & process passport photos', color: 'bg-secondary/10 text-secondary-foreground' },
     { path: '/visa-news', icon: Newspaper, title: 'Visa News', desc: 'Latest visa updates', color: 'bg-primary/10 text-primary' },
   ];
 
