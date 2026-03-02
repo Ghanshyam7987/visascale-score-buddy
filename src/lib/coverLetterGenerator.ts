@@ -28,6 +28,23 @@ export const coverLetterDocuments = [
   "Invitee's Documents",
 ];
 
+export const sponsoredApplicantDocuments = [
+  'Applicant - 6 Months Bank Statement',
+  'Applicant - Income Tax Return (ITR)',
+  'Applicant - PAN Card Copy',
+  'Applicant - Aadhaar Card Copy',
+  'Applicant - Employment Proof / Business Registration',
+  'Applicant - Salary Slips (Last 3 Months)',
+  'Applicant - Property Documents',
+  'Applicant - Form 16',
+  'Sponsor - 6 Months Bank Statement',
+  'Sponsor - Income Tax Return (ITR)',
+  'Sponsor - Sponsorship Affidavit',
+  'Sponsor - PAN Card Copy',
+  'Sponsor - Aadhaar Card Copy',
+  'Sponsor - Proof of Relationship',
+];
+
 export interface Applicant {
   name: string;
   passportNumber: string;

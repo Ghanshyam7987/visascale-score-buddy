@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { generateCoverLetterPDF, embassyAddresses, visaCountries, CoverLetterData, Applicant, relationOptions, coverLetterDocuments } from '@/lib/coverLetterGenerator';
+import { generateCoverLetterPDF, embassyAddresses, visaCountries, CoverLetterData, Applicant, relationOptions, coverLetterDocuments, sponsoredApplicantDocuments } from '@/lib/coverLetterGenerator';
 
 const CoverLetter = () => {
   const { toast } = useToast();
@@ -234,6 +234,26 @@ const CoverLetter = () => {
                   </div>
                 ))}
               </div>
+
+              {/* Sponsored applicant & sponsor documents */}
+              {(selectedDocuments.includes('Sponsorship Letter') || selectedDocuments.includes('Invitation Letter')) && (
+                <div className="mt-4 pt-4 border-t border-border space-y-3">
+                  <p className="text-sm font-semibold text-primary">Applicant & Sponsor Documents</p>
+                  <div className="space-y-2">
+                    {sponsoredApplicantDocuments.map((doc) => (
+                      <div key={doc} className="flex items-center space-x-3">
+                        <Checkbox
+                          id={`cl-sp-doc-${doc}`}
+                          checked={selectedDocuments.includes(doc)}
+                          onCheckedChange={() => toggleDocument(doc)}
+                        />
+                        <Label htmlFor={`cl-sp-doc-${doc}`} className="text-sm cursor-pointer flex-1">{doc}</Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {selectedDocuments.length > 0 && (
                 <p className="text-xs text-muted-foreground">{selectedDocuments.length} document(s) selected</p>
               )}
