@@ -88,7 +88,7 @@ export function generateSalarySlipPDF(data: SalarySlipData): void {
   earningsFields.forEach(field => {
     if (field.value > 0) {
       doc.text(field.label, 20, earningsY);
-      doc.text(`₹ ${field.value.toLocaleString('en-IN')}`, 80, earningsY, { align: 'right' });
+      doc.text(`Rs. ${field.value.toLocaleString('en-IN')}`, 80, earningsY, { align: 'right' });
       earningsY += 10;
     }
   });
@@ -96,7 +96,7 @@ export function generateSalarySlipPDF(data: SalarySlipData): void {
   earningsY += 2;
   doc.setFont('helvetica', 'bold');
   doc.text('Gross Salary', 20, earningsY);
-  doc.text(`₹ ${grossSalary.toLocaleString('en-IN')}`, 80, earningsY, { align: 'right' });
+  doc.text(`Rs. ${grossSalary.toLocaleString('en-IN')}`, 80, earningsY, { align: 'right' });
 
   // Deductions Section - only show non-zero fields
   let deductionsY = 100;
@@ -123,7 +123,7 @@ export function generateSalarySlipPDF(data: SalarySlipData): void {
   deductionFields.forEach(field => {
     if (field.value > 0) {
       doc.text(field.label, 115, deductionsY);
-      doc.text(`₹ ${field.value.toLocaleString('en-IN')}`, 180, deductionsY, { align: 'right' });
+      doc.text(`Rs. ${field.value.toLocaleString('en-IN')}`, 180, deductionsY, { align: 'right' });
       deductionsY += 10;
     }
   });
@@ -131,7 +131,7 @@ export function generateSalarySlipPDF(data: SalarySlipData): void {
   deductionsY += 12;
   doc.setFont('helvetica', 'bold');
   doc.text('Total Deductions', 115, deductionsY);
-  doc.text(`₹ ${totalDeductions.toLocaleString('en-IN')}`, 180, deductionsY, { align: 'right' });
+  doc.text(`Rs. ${totalDeductions.toLocaleString('en-IN')}`, 180, deductionsY, { align: 'right' });
 
   // Net Salary Box
   const netY = Math.max(earningsY, deductionsY) + 20;
@@ -142,7 +142,7 @@ export function generateSalarySlipPDF(data: SalarySlipData): void {
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   doc.text('NET SALARY', 25, netY + 13);
-  doc.text(`₹ ${netSalary.toLocaleString('en-IN')}`, 185, netY + 13, { align: 'right' });
+  doc.text(`Rs. ${netSalary.toLocaleString('en-IN')}`, 185, netY + 13, { align: 'right' });
 
   // Signature section
   const sigY = netY + 35;
