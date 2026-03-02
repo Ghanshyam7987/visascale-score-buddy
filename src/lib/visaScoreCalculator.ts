@@ -37,6 +37,11 @@ export interface VisaScoreInput {
   docSponsorPersonalBankStatement?: boolean;
   docSponsorCompanyRegistration?: boolean;
   docSponsorFirmBankStatement?: boolean;
+  // Applicant documents (for pure sponsored types)
+  docApplicantBankStatement?: boolean;
+  docApplicantItr?: boolean;
+  docApplicantPanCard?: boolean;
+  docApplicantAadhaar?: boolean;
 }
 
 export function getIncomeBracket(amount: number): VisaScoreInput['yearlyIncome'] {
