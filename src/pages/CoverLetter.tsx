@@ -256,7 +256,7 @@ const CoverLetter = () => {
         {/* Generate */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <Button onClick={handleGenerate} className="w-full gradient-primary text-primary-foreground touch-target text-lg font-semibold" disabled={isGenerating}>
-            {isGenerating ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Generating...</> : <><Download className="mr-2 h-5 w-5" />Download Cover Letter PDF</>}
+            {isGenerating ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Generating...</> : <><Download className="mr-2 h-5 w-5" />Download Cover Letter (Word)</>}
           </Button>
         </motion.div>
       </div>
