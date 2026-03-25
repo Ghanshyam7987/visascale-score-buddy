@@ -48,34 +48,32 @@ const CoverLetter = () => {
   const addressOptions = country ? Object.keys(embassyAddresses[country] || {}) : [];
   const filteredCountries = visaCountries.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase()));
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!country || !applicants[0].name || !applicants[0].passportNumber) {
       toast({ title: 'Missing Information', description: 'Please fill in country, name and passport number.', variant: 'destructive' });
       return;
     }
     setIsGenerating(true);
-    setTimeout(() => {
-      try {
-        const data: CoverLetterData = {
-          date,
-          country,
-          consularCity,
-          applicants,
-          dateOfArrival,
-          dateOfDeparture,
-          cities: cities.filter(c => c.name),
-          documents: selectedDocuments,
-          designation,
-          businessName,
-          businessAddress,
-        };
-        generateCoverLetterPDF(data);
-        toast({ title: 'PDF Generated!', description: 'Cover letter downloaded.' });
-      } catch {
-        toast({ title: 'Error', description: 'Failed to generate PDF.', variant: 'destructive' });
-      }
-      setIsGenerating(false);
-    }, 300);
+    try {
+      const data: CoverLetterData = {
+        date,
+        country,
+        consularCity,
+        applicants,
+        dateOfArrival,
+        dateOfDeparture,
+        cities: cities.filter(c => c.name),
+        documents: selectedDocuments,
+        designation,
+        businessName,
+        businessAddress,
+      };
+      await generateCoverLetterPDF(data);
+      toast({ title: 'Word File Generated!', description: 'Cover letter downloaded as .docx' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to generate document.', variant: 'destructive' });
+    }
+    setIsGenerating(false);
   };
 
   return (
