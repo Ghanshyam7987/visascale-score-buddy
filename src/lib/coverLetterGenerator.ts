@@ -1,4 +1,5 @@
-import jsPDF from 'jspdf';
+import { Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType } from 'docx';
+import { saveAs } from 'file-saver';
 import { allTravelCountries } from '@/lib/visaScoreCalculator';
 
 export const relationOptions = [
@@ -228,170 +229,144 @@ function getCityFromConsularCity(consularCity: string): string {
   return 'New Delhi';
 }
 
-export function generateCoverLetterPDF(data: CoverLetterData): void {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 20;
-  const usableWidth = pageWidth - margin * 2;
-  let y = 20;
+export async function generateCoverLetterPDF(data: CoverLetterData): Promise<void> {
+  const children: Paragraph[] = [];
+  const fontSize = 22; // 11pt in half-points
+  const font = 'Times New Roman';
 
-  const lineHeight = 6;
+  const normalRun = (text: string, bold = false) => new TextRun({ text, font, size: fontSize, bold });
 
-  const checkPage = (needed: number) => {
-    if (y + needed > 275) {
-      doc.addPage();
-      y = 20;
-    }
-  };
-
-  // Date - top left
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Date: ${data.date}`, margin, y);
-  y += 14;
+  // Date
+  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(`Date: ${data.date}`)] }));
 
   // Address block
-  doc.text('To,', margin, y);
-  y += lineHeight;
-  doc.text('The Visa Officer', margin, y);
-  y += lineHeight;
+  children.push(new Paragraph({ children: [normalRun('To,')] }));
+  children.push(new Paragraph({ children: [normalRun('The Visa Officer')] }));
 
   const city = getCityFromConsularCity(data.consularCity);
-  doc.text(`Embassy of ${data.country}`, margin, y);
-  y += lineHeight;
-  doc.text(`${city}, India`, margin, y);
-  y += 14;
+  children.push(new Paragraph({ children: [normalRun(`Embassy of ${data.country}`)] }));
+  children.push(new Paragraph({ spacing: { after: 300 }, children: [normalRun(`${city}, India`)] }));
 
   // Subject
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  const subjectText = 'Application for Tourist Visa';
-  doc.text(`Subject: ${subjectText}`, margin, y);
-  const subjectStart = margin + doc.getTextWidth('Subject: ');
-  const subjectWidth = doc.getTextWidth(subjectText);
-  doc.line(subjectStart, y + 1, subjectStart + subjectWidth, y + 1);
-  y += 12;
+  children.push(new Paragraph({
+    spacing: { after: 200 },
+    children: [
+      normalRun('Subject: ', true),
+      new TextRun({ text: 'Application for Tourist Visa', font, size: fontSize, bold: true, underline: { type: UnderlineType.SINGLE } }),
+    ],
+  }));
 
   // Dear Sir/Madam
-  doc.setFont('helvetica', 'normal');
-  doc.text('Dear Sir/Madam,', margin, y);
-  y += 10;
+  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun('Dear Sir/Madam,')] }));
 
   // Main paragraph
   const primary = data.applicants[0];
   let mainPara = `I, ${primary.name} (Passport No. ${primary.passportNumber}), wish to apply for a Tourist Visa to visit ${data.country} for tourism purposes.`;
-
   if (data.applicants.length > 1) {
     mainPara += ' I will be travelling along with my family members:';
   }
 
-  const arrivalFormatted = formatDate(data.dateOfArrival);
-  const departureFormatted = formatDate(data.dateOfDeparture);
+  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(mainPara)] }));
 
-  const mainLines = doc.splitTextToSize(mainPara, usableWidth);
-  doc.text(mainLines, margin, y);
-  y += mainLines.length * lineHeight + 4;
-
-  // List co-applicants
+  // Co-applicants as bullet list
   if (data.applicants.length > 1) {
     data.applicants.slice(1).forEach((applicant) => {
-      checkPage(10);
       const line = getApplicantLine(applicant);
-      const lines = doc.splitTextToSize(line, usableWidth - 5);
-      // Draw bullet
-      doc.setFont('helvetica', 'normal');
-      doc.text('•', margin + 2, y);
-      doc.text(lines, margin + 8, y);
-      y += lines.length * lineHeight + 2;
+      children.push(new Paragraph({
+        spacing: { after: 80 },
+        indent: { left: 360 },
+        children: [normalRun(`•${line}`)],
+      }));
     });
-    y += 4;
   }
 
   // Travel dates
+  const arrivalFormatted = formatDate(data.dateOfArrival);
+  const departureFormatted = formatDate(data.dateOfDeparture);
   if (arrivalFormatted && departureFormatted) {
-    checkPage(14);
-    const travelPara = `Our intended travel dates are from ${arrivalFormatted} to ${departureFormatted}.`;
-    const travelLines = doc.splitTextToSize(travelPara, usableWidth);
-    doc.text(travelLines, margin, y);
-    y += travelLines.length * lineHeight + 6;
+    children.push(new Paragraph({
+      spacing: { before: 200, after: 200 },
+      children: [normalRun(`Our intended travel dates are from ${arrivalFormatted} to ${departureFormatted}.`)],
+    }));
   }
 
-  // Business / Employment paragraph
-  checkPage(20);
+  // Business / Employment
   let bizPara = '';
   if (data.designation && data.businessName) {
     bizPara = `I am the ${data.designation} of ${data.businessName.toUpperCase()}`;
-    if (data.businessAddress) {
-      bizPara += `, ${data.businessAddress}`;
-    }
+    if (data.businessAddress) bizPara += `, ${data.businessAddress}`;
     bizPara += ` and possess sufficient financial resources to cover all travel-related expenses.`;
   } else if (data.businessName) {
     bizPara = `I am associated with ${data.businessName.toUpperCase()} and possess sufficient financial resources to cover all travel-related expenses.`;
   } else {
     bizPara = `I possess sufficient financial resources to cover all travel-related expenses.`;
   }
-  if (data.applicants.length > 1) {
-    bizPara += ' I will be bearing the complete cost of the trip for all accompanying family members.';
-  } else {
-    bizPara += ' I will be bearing the complete cost of the trip.';
-  }
-  doc.setFont('helvetica', 'normal');
-  const bizLines = doc.splitTextToSize(bizPara, usableWidth);
-  doc.text(bizLines, margin, y);
-  y += bizLines.length * lineHeight + 6;
+  bizPara += data.applicants.length > 1
+    ? ' I will be bearing the complete cost of the trip for all accompanying family members.'
+    : ' I will be bearing the complete cost of the trip.';
+
+  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(bizPara)] }));
 
   // Itinerary
   if (data.cities.length > 0 && data.cities.some(c => c.name)) {
-    checkPage(20);
     const schengenCountries = ['Switzerland', 'Germany', 'France', 'Italy', 'Austria', 'Belgium', 'Netherlands', 'Spain', 'Portugal', 'Greece'];
     const isSchengen = schengenCountries.some(sc => data.country.includes(sc));
     const regionText = isSchengen ? 'the Schengen region' : data.country;
-    doc.text(`Our planned itinerary within ${regionText} is as follows:`, margin, y);
-    y += 10;
 
-    data.cities.filter(c => c.name).forEach((city) => {
-      checkPage(10);
-      const padded = String(city.nights).padStart(2, '0');
-      const cityLine = `${padded} Nights in ${city.name}`;
-      doc.text('•', margin + 5, y);
-      doc.text(cityLine, margin + 14, y);
-      y += lineHeight + 2;
+    children.push(new Paragraph({
+      spacing: { after: 100 },
+      children: [normalRun(`Our planned itinerary within ${regionText} is as follows:`)],
+    }));
+
+    data.cities.filter(c => c.name).forEach((cityItem) => {
+      const padded = String(cityItem.nights).padStart(2, '0');
+      children.push(new Paragraph({
+        spacing: { after: 60 },
+        indent: { left: 360 },
+        children: [normalRun(`• ${padded} Nights in ${cityItem.name}`)],
+      }));
     });
-    y += 4;
   }
 
   // Documents
   if (data.documents.length > 0) {
-    checkPage(20);
-    doc.text('Please find enclosed the following supporting documents for our visa application:', margin, y);
-    y += 10;
+    children.push(new Paragraph({
+      spacing: { before: 200, after: 100 },
+      children: [normalRun('Please find enclosed the following supporting documents for our visa application:')],
+    }));
 
     data.documents.forEach((docName) => {
-      checkPage(10);
-      doc.text('•', margin + 5, y);
-      const docLines = doc.splitTextToSize(docName, usableWidth - 20);
-      doc.text(docLines, margin + 14, y);
-      y += docLines.length * lineHeight + 2;
+      children.push(new Paragraph({
+        spacing: { after: 60 },
+        indent: { left: 360 },
+        children: [normalRun(`• ${docName}`)],
+      }));
     });
-    y += 4;
   }
 
   // Closing
-  checkPage(30);
-  const closingText = 'I kindly request you to consider our application and grant us the necessary visa to undertake this trip.';
-  const closingLines = doc.splitTextToSize(closingText, usableWidth);
-  doc.text(closingLines, margin, y);
-  y += closingLines.length * lineHeight + 14;
+  children.push(new Paragraph({
+    spacing: { before: 300, after: 400 },
+    children: [normalRun('I kindly request you to consider our application and grant us the necessary visa to undertake this trip.')],
+  }));
 
   // Sign off
-  checkPage(30);
-  doc.text('Yours faithfully,', margin, y);
-  y += 20;
+  children.push(new Paragraph({ spacing: { after: 400 }, children: [normalRun('Yours faithfully,')] }));
 
-  // Applicant name
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.text(primary.name, margin, y);
+  // Name
+  children.push(new Paragraph({ children: [normalRun(primary.name, true)] }));
 
-  doc.save(`Cover_Letter_${data.country}_${data.date.replace(/\//g, '-')}.pdf`);
+  const wordDoc = new Document({
+    sections: [{
+      properties: {
+        page: {
+          margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+        },
+      },
+      children,
+    }],
+  });
+
+  const blob = await Packer.toBlob(wordDoc);
+  saveAs(blob, `Cover_Letter_${data.country}_${data.date.replace(/\//g, '-')}.docx`);
 }

@@ -48,34 +48,32 @@ const CoverLetter = () => {
   const addressOptions = country ? Object.keys(embassyAddresses[country] || {}) : [];
   const filteredCountries = visaCountries.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase()));
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!country || !applicants[0].name || !applicants[0].passportNumber) {
       toast({ title: 'Missing Information', description: 'Please fill in country, name and passport number.', variant: 'destructive' });
       return;
     }
     setIsGenerating(true);
-    setTimeout(() => {
-      try {
-        const data: CoverLetterData = {
-          date,
-          country,
-          consularCity,
-          applicants,
-          dateOfArrival,
-          dateOfDeparture,
-          cities: cities.filter(c => c.name),
-          documents: selectedDocuments,
-          designation,
-          businessName,
-          businessAddress,
-        };
-        generateCoverLetterPDF(data);
-        toast({ title: 'PDF Generated!', description: 'Cover letter downloaded.' });
-      } catch {
-        toast({ title: 'Error', description: 'Failed to generate PDF.', variant: 'destructive' });
-      }
-      setIsGenerating(false);
-    }, 300);
+    try {
+      const data: CoverLetterData = {
+        date,
+        country,
+        consularCity,
+        applicants,
+        dateOfArrival,
+        dateOfDeparture,
+        cities: cities.filter(c => c.name),
+        documents: selectedDocuments,
+        designation,
+        businessName,
+        businessAddress,
+      };
+      await generateCoverLetterPDF(data);
+      toast({ title: 'Word File Generated!', description: 'Cover letter downloaded as .docx' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to generate document.', variant: 'destructive' });
+    }
+    setIsGenerating(false);
   };
 
   return (
@@ -258,7 +256,7 @@ const CoverLetter = () => {
         {/* Generate */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <Button onClick={handleGenerate} className="w-full gradient-primary text-primary-foreground touch-target text-lg font-semibold" disabled={isGenerating}>
-            {isGenerating ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Generating...</> : <><Download className="mr-2 h-5 w-5" />Download Cover Letter PDF</>}
+            {isGenerating ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Generating...</> : <><Download className="mr-2 h-5 w-5" />Download Cover Letter (Word)</>}
           </Button>
         </motion.div>
       </div>
