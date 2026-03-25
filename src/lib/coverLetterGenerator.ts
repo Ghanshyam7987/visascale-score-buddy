@@ -1,4 +1,5 @@
-import jsPDF from 'jspdf';
+import { Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType } from 'docx';
+import { saveAs } from 'file-saver';
 import { allTravelCountries } from '@/lib/visaScoreCalculator';
 
 export const relationOptions = [
