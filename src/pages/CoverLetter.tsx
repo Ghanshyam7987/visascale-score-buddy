@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Plus, Trash2, Download, Loader2, MapPin, Calendar, Plane, Search, ChevronsUpDown } from 'lucide-react';
+import { FileText, Plus, Trash2, Download, Loader2, MapPin, Calendar, Plane, Search, ChevronsUpDown, Briefcase } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { generateCoverLetterPDF, embassyAddresses, visaCountries, CoverLetterData, Applicant, relationOptions, coverLetterDocuments, sponsoredApplicantDocuments } from '@/lib/coverLetterGenerator';
+import { generateCoverLetterPDF, embassyAddresses, visaCountries, CoverLetterData, Applicant, relationOptions, coverLetterDocuments } from '@/lib/coverLetterGenerator';
 
 const CoverLetter = () => {
   const { toast } = useToast();
@@ -26,8 +26,9 @@ const CoverLetter = () => {
   const [dateOfDeparture, setDateOfDeparture] = useState('');
   const [cities, setCities] = useState<{ name: string; nights: number }[]>([{ name: '', nights: 1 }]);
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
-  const [occupation, setOccupation] = useState('');
-  const [companyName, setCompanyName] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [businessAddress, setBusinessAddress] = useState('');
 
   const addApplicant = () => setApplicants([...applicants, { name: '', passportNumber: '', relation: '' }]);
   const removeApplicant = (i: number) => setApplicants(applicants.filter((_, idx) => idx !== i));
@@ -48,8 +49,8 @@ const CoverLetter = () => {
   const filteredCountries = visaCountries.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase()));
 
   const handleGenerate = () => {
-    if (!country || applicants.some(a => !a.name || !a.passportNumber)) {
-      toast({ title: 'Missing Information', description: 'Please fill in country and all applicant details.', variant: 'destructive' });
+    if (!country || !applicants[0].name || !applicants[0].passportNumber) {
+      toast({ title: 'Missing Information', description: 'Please fill in country, name and passport number.', variant: 'destructive' });
       return;
     }
     setIsGenerating(true);
@@ -58,15 +59,15 @@ const CoverLetter = () => {
         const data: CoverLetterData = {
           date,
           country,
-          addressType: consularCity.includes('Embassy') ? 'embassy' : 'consulate',
           consularCity,
           applicants,
           dateOfArrival,
           dateOfDeparture,
           cities: cities.filter(c => c.name),
           documents: selectedDocuments,
-          occupation,
-          companyName,
+          designation,
+          businessName,
+          businessAddress,
         };
         generateCoverLetterPDF(data);
         toast({ title: 'PDF Generated!', description: 'Cover letter downloaded.' });
@@ -128,14 +129,6 @@ const CoverLetter = () => {
                   </Select>
                 </div>
               )}
-              <div className="space-y-2">
-                <Label>Your Occupation / Designation</Label>
-                <Input placeholder="e.g., Partner, Director, Employee" value={occupation} onChange={(e) => setOccupation(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Company / Firm Name</Label>
-                <Input placeholder="e.g., ENKAY INVESTMENTS" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-              </div>
             </CardContent>
           </Card>
         </motion.div>
@@ -179,13 +172,34 @@ const CoverLetter = () => {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Arrival Date</Label>
+                  <Label>From Date</Label>
                   <Input type="date" value={dateOfArrival} onChange={(e) => setDateOfArrival(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Departure Date</Label>
+                  <Label>To Date</Label>
                   <Input type="date" value={dateOfDeparture} onChange={(e) => setDateOfDeparture(e.target.value)} />
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Employer / Business */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Briefcase className="h-5 w-5 text-primary" />Employer / Business</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Designation</Label>
+                <Input placeholder="e.g., Proprietor, Director, Partner, Employee" value={designation} onChange={(e) => setDesignation(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Business / Employer Name</Label>
+                <Input placeholder="e.g., SIDDHARTH EXIM" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Business Address (optional)</Label>
+                <Input placeholder="e.g., 123 Main Street, City" value={businessAddress} onChange={(e) => setBusinessAddress(e.target.value)} />
               </div>
             </CardContent>
           </Card>
@@ -196,7 +210,7 @@ const CoverLetter = () => {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" />Cities & Stay</CardTitle>
+                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" />Travelling Cities</CardTitle>
                 <Button size="sm" variant="outline" onClick={addCity}><Plus className="h-4 w-4 mr-1" />Add</Button>
               </div>
             </CardHeader>
@@ -215,11 +229,11 @@ const CoverLetter = () => {
           </Card>
         </motion.div>
 
-        {/* Documents - Dropdown checklist */}
+        {/* Documents */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Attached Documents</CardTitle>
+              <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Documents List</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
@@ -234,26 +248,6 @@ const CoverLetter = () => {
                   </div>
                 ))}
               </div>
-
-              {/* Sponsored applicant & sponsor documents */}
-              {(selectedDocuments.includes('Sponsorship Letter') || selectedDocuments.includes('Invitation Letter')) && (
-                <div className="mt-4 pt-4 border-t border-border space-y-3">
-                  <p className="text-sm font-semibold text-primary">Applicant & Sponsor Documents</p>
-                  <div className="space-y-2">
-                    {sponsoredApplicantDocuments.map((doc) => (
-                      <div key={doc} className="flex items-center space-x-3">
-                        <Checkbox
-                          id={`cl-sp-doc-${doc}`}
-                          checked={selectedDocuments.includes(doc)}
-                          onCheckedChange={() => toggleDocument(doc)}
-                        />
-                        <Label htmlFor={`cl-sp-doc-${doc}`} className="text-sm cursor-pointer flex-1">{doc}</Label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {selectedDocuments.length > 0 && (
                 <p className="text-xs text-muted-foreground">{selectedDocuments.length} document(s) selected</p>
               )}

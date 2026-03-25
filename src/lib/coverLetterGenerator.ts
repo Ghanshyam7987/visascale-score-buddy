@@ -4,65 +4,50 @@ import { allTravelCountries } from '@/lib/visaScoreCalculator';
 export const relationOptions = [
   'My Mother', 'My Father', 'My Wife', 'My Husband',
   'My Son', 'My Daughter', 'My Sister', 'My Brother',
-  'My Friend', 'My Brother in Law', 'My Sister in Law',
-  'My Mother in Law', 'My Father in Law',
-  'My Fiancé', 'My Fiancée',
-  'My Uncle', 'My Aunty', 'My Cousin', 'Relative',
+  'My Friend', 'My Relative', 'My Business Partner',
 ];
 
 export const coverLetterDocuments = [
-  'Original Passport',
-  'Completed Visa Application Form',
-  'Hotel Reservation',
-  'Return Tickets Itinerary',
-  'Photos (as per Specification)',
-  'Health Insurance',
-  'Bank Statement Personal (With Minimum Required Balance)',
-  'Bank Statement Company/Firm',
-  'Income Tax Return',
-  'Company/Firm GST Certificate',
-  'Company NOC',
-  'Salary Slip',
-  'Sponsorship Letter',
+  'Original passports, completed Visa Application Forms, and two recent passport-size photographs',
+  'Confirmed return flight reservations',
+  'Hotel booking vouchers',
+  'Detailed day-wise itinerary',
+  'Personal covering letter',
+  'Travel health insurance',
+  'Bank statements for the last six months',
+  'Income Tax Return acknowledgements (last 3 years)',
+  'GST Certificate',
+  'Company/Business Registration',
+  'Salary Slips (last 3 months)',
+  'Form 16',
+  'PAN Card copy',
+  'Aadhaar Card copy',
+  'Property documents',
+  'Sponsorship Letter / Affidavit',
   'Invitation Letter',
-  "Invitee's Documents",
-];
-
-export const sponsoredApplicantDocuments = [
-  'Applicant - 6 Months Bank Statement',
-  'Applicant - Income Tax Return (ITR)',
-  'Applicant - PAN Card Copy',
-  'Applicant - Aadhaar Card Copy',
-  'Applicant - Employment Proof / Business Registration',
-  'Applicant - Salary Slips (Last 3 Months)',
-  'Applicant - Property Documents',
-  'Applicant - Form 16',
-  'Sponsor - 6 Months Bank Statement',
-  'Sponsor - Income Tax Return (ITR)',
-  'Sponsor - Sponsorship Affidavit',
-  'Sponsor - PAN Card Copy',
-  'Sponsor - Aadhaar Card Copy',
-  'Sponsor - Proof of Relationship',
+  'Sponsor\'s bank statements',
+  'Proof of Relationship',
+  'NOC from Employer',
 ];
 
 export interface Applicant {
   name: string;
   passportNumber: string;
-  relation?: string; // only for co-applicants (index > 0)
+  relation?: string;
 }
 
 export interface CoverLetterData {
   date: string;
   country: string;
-  addressType: 'embassy' | 'consulate';
   consularCity: string;
   applicants: Applicant[];
   dateOfArrival: string;
   dateOfDeparture: string;
   cities: { name: string; nights: number }[];
   documents: string[];
-  occupation?: string;
-  companyName?: string;
+  designation?: string;
+  businessName?: string;
+  businessAddress?: string;
 }
 
 export const embassyAddresses: Record<string, Record<string, string>> = {
@@ -187,7 +172,6 @@ export const embassyAddresses: Record<string, Record<string, string>> = {
   },
 };
 
-// Cover letter visa countries = embassy countries + all tier countries
 const embassyCountryNames = Object.keys(embassyAddresses);
 const allCoverLetterCountrySet = new Set([...embassyCountryNames, ...allTravelCountries]);
 export const visaCountries = Array.from(allCoverLetterCountrySet).sort();
@@ -201,24 +185,87 @@ function formatDate(dateStr: string): string {
   return `${day}${suffix} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+function getRelationTitle(relation: string, name: string): string {
+  // Extract first name for title prefix
+  const rel = relation.replace('My ', '').toLowerCase();
+  const titleMap: Record<string, string> = {
+    'mother': 'Mrs.',
+    'father': 'Mr.',
+    'wife': 'Mrs.',
+    'husband': 'Mr.',
+    'son': 'Mr.',
+    'daughter': 'Miss',
+    'sister': 'Miss',
+    'brother': 'Mr.',
+    'friend': '',
+    'relative': '',
+    'business partner': 'Mr./Ms.',
+  };
+  const title = titleMap[rel] || '';
+  const relationLabel = relation.replace('My ', 'my ');
+  return { title, relationLabel } as any;
+}
+
+function getApplicantLine(applicant: Applicant): string {
+  const rel = (applicant.relation || '').replace('My ', '').toLowerCase();
+  const titleMap: Record<string, string> = {
+    'mother': 'Mrs.', 'father': 'Mr.', 'wife': 'Mrs.', 'husband': 'Mr.',
+    'son': 'Mr.', 'daughter': 'Miss', 'sister': 'Miss', 'brother': 'Mr.',
+    'friend': '', 'relative': '', 'business partner': '',
+  };
+  const title = titleMap[rel] || '';
+  const relationLabel = (applicant.relation || '').replace('My ', 'my ');
+  const titlePart = title ? `${title} ` : '';
+  return ` ${relationLabel}, ${titlePart}${applicant.name} (Passport No. ${applicant.passportNumber})`;
+}
+
+function getCityFromConsularCity(consularCity: string): string {
+  if (consularCity.includes('New Delhi')) return 'New Delhi';
+  if (consularCity.includes('Mumbai')) return 'Mumbai';
+  if (consularCity.includes('Chennai')) return 'Chennai';
+  if (consularCity.includes('Kolkata')) return 'Kolkata';
+  if (consularCity.includes('Hyderabad')) return 'Hyderabad';
+  return 'New Delhi';
+}
+
 export function generateCoverLetterPDF(data: CoverLetterData): void {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 20;
   const usableWidth = pageWidth - margin * 2;
-  let y = 25;
+  let y = 20;
+
+  const lineHeight = 6;
 
   const checkPage = (needed: number) => {
-    if (y + needed > 270) {
+    if (y + needed > 275) {
       doc.addPage();
-      y = 25;
+      y = 20;
     }
   };
 
-  // Subject line - underlined and bold
-  doc.setFontSize(12);
+  // Date - top left
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Date: ${data.date}`, margin, y);
+  y += 14;
+
+  // Address block
+  doc.text('To,', margin, y);
+  y += lineHeight;
+  doc.text('The Visa Officer', margin, y);
+  y += lineHeight;
+
+  const city = getCityFromConsularCity(data.consularCity);
+  doc.text(`Embassy of ${data.country}`, margin, y);
+  y += lineHeight;
+  doc.text(`${city}, India`, margin, y);
+  y += 14;
+
+  // Subject
   doc.setFont('helvetica', 'bold');
-  const subjectText = 'Application for the Tourist Visa';
+  doc.setFontSize(11);
+  const subjectText = 'Application for Tourist Visa';
   doc.text(`Subject: ${subjectText}`, margin, y);
   const subjectStart = margin + doc.getTextWidth('Subject: ');
   const subjectWidth = doc.getTextWidth(subjectText);
@@ -226,106 +273,125 @@ export function generateCoverLetterPDF(data: CoverLetterData): void {
   y += 12;
 
   // Dear Sir/Madam
-  doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
   doc.text('Dear Sir/Madam,', margin, y);
   y += 10;
 
-  // Main paragraph with applicant details including relations
+  // Main paragraph
   const primary = data.applicants[0];
-  let mainPara = `I ${primary.name} Passport No. # ${primary.passportNumber}, wants to visit ${data.country} for tourism purpose`;
+  let mainPara = `I, ${primary.name} (Passport No. ${primary.passportNumber}), wish to apply for a Tourist Visa to visit ${data.country} for tourism purposes.`;
 
   if (data.applicants.length > 1) {
-    const others = data.applicants.slice(1).map(a => {
-      const rel = a.relation ? ` (${a.relation})` : '';
-      return `${a.name} Passport No.# ${a.passportNumber}${rel}`;
-    });
-    mainPara += ` along with ${others.join(', ')}`;
+    mainPara += ' I will be travelling along with my family members:';
   }
 
   const arrivalFormatted = formatDate(data.dateOfArrival);
   const departureFormatted = formatDate(data.dateOfDeparture);
-  if (arrivalFormatted && departureFormatted) {
-    mainPara += ` from ${arrivalFormatted} to ${departureFormatted}.`;
-  } else {
-    mainPara += '.';
-  }
 
   const mainLines = doc.splitTextToSize(mainPara, usableWidth);
   doc.text(mainLines, margin, y);
-  y += mainLines.length * 6 + 6;
+  y += mainLines.length * lineHeight + 4;
 
-  // Occupation / financial statement
+  // List co-applicants
+  if (data.applicants.length > 1) {
+    data.applicants.slice(1).forEach((applicant) => {
+      checkPage(10);
+      const line = getApplicantLine(applicant);
+      const lines = doc.splitTextToSize(line, usableWidth - 5);
+      // Draw bullet
+      doc.setFont('helvetica', 'normal');
+      doc.text('•', margin + 2, y);
+      doc.text(lines, margin + 8, y);
+      y += lines.length * lineHeight + 2;
+    });
+    y += 4;
+  }
+
+  // Travel dates
+  if (arrivalFormatted && departureFormatted) {
+    checkPage(14);
+    const travelPara = `Our intended travel dates are from ${arrivalFormatted} to ${departureFormatted}.`;
+    const travelLines = doc.splitTextToSize(travelPara, usableWidth);
+    doc.text(travelLines, margin, y);
+    y += travelLines.length * lineHeight + 6;
+  }
+
+  // Business / Employment paragraph
   checkPage(20);
-  doc.setFont('helvetica', 'bold');
-  const occText = data.occupation && data.companyName
-    ? `I am ${data.occupation} in ${data.companyName} and have sufficient fund to cover all expenses. I will bear the cost of the entire trip${data.applicants.length > 1 ? ' for all of us' : ''}.`
-    : `I have sufficient fund to cover all expenses. I will bear the cost of the entire trip${data.applicants.length > 1 ? ' for all of us' : ''}.`;
-  const occLines = doc.splitTextToSize(occText, usableWidth);
-  doc.text(occLines, margin, y);
-  y += occLines.length * 6 + 8;
+  let bizPara = '';
+  if (data.designation && data.businessName) {
+    bizPara = `I am the ${data.designation} of ${data.businessName.toUpperCase()}`;
+    if (data.businessAddress) {
+      bizPara += `, ${data.businessAddress}`;
+    }
+    bizPara += ` and possess sufficient financial resources to cover all travel-related expenses.`;
+  } else if (data.businessName) {
+    bizPara = `I am associated with ${data.businessName.toUpperCase()} and possess sufficient financial resources to cover all travel-related expenses.`;
+  } else {
+    bizPara = `I possess sufficient financial resources to cover all travel-related expenses.`;
+  }
+  if (data.applicants.length > 1) {
+    bizPara += ' I will be bearing the complete cost of the trip for all accompanying family members.';
+  } else {
+    bizPara += ' I will be bearing the complete cost of the trip.';
+  }
+  doc.setFont('helvetica', 'normal');
+  const bizLines = doc.splitTextToSize(bizPara, usableWidth);
+  doc.text(bizLines, margin, y);
+  y += bizLines.length * lineHeight + 6;
 
-  // Stay / Itinerary
+  // Itinerary
   if (data.cities.length > 0 && data.cities.some(c => c.name)) {
     checkPage(20);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Our Stay in ${data.country} will be following:-`, margin, y);
-    y += 8;
+    const schengenCountries = ['Switzerland', 'Germany', 'France', 'Italy', 'Austria', 'Belgium', 'Netherlands', 'Spain', 'Portugal', 'Greece'];
+    const isSchengen = schengenCountries.some(sc => data.country.includes(sc));
+    const regionText = isSchengen ? 'the Schengen region' : data.country;
+    doc.text(`Our planned itinerary within ${regionText} is as follows:`, margin, y);
+    y += 10;
 
-    doc.setFont('helvetica', 'normal');
-    const itineraryStr = data.cities
-      .filter(c => c.name)
-      .map(c => `${String(c.nights).padStart(2, '0')} Nights ${c.name}`)
-      .join(' + ');
-
-    doc.text('•', margin + 5, y);
-    const itinLines = doc.splitTextToSize(itineraryStr, usableWidth - 15);
-    doc.text(itinLines, margin + 12, y);
-    y += itinLines.length * 6 + 8;
+    data.cities.filter(c => c.name).forEach((city) => {
+      checkPage(10);
+      const padded = String(city.nights).padStart(2, '0');
+      const cityLine = `${padded} Nights in ${city.name}`;
+      doc.text('•', margin + 5, y);
+      doc.text(cityLine, margin + 14, y);
+      y += lineHeight + 2;
+    });
+    y += 4;
   }
 
   // Documents
-  if (data.documents.length > 0 && data.documents.some(d => d.trim())) {
-    checkPage(25);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Supporting visa application documents, I have enclosed with this letter:', margin, y);
+  if (data.documents.length > 0) {
+    checkPage(20);
+    doc.text('Please find enclosed the following supporting documents for our visa application:', margin, y);
     y += 10;
 
-    doc.setFont('helvetica', 'normal');
-    data.documents.filter(d => d.trim()).forEach((docName) => {
+    data.documents.forEach((docName) => {
       checkPage(10);
-      doc.text('•', margin + 10, y);
-      const docLines = doc.splitTextToSize(docName, usableWidth - 25);
-      doc.text(docLines, margin + 18, y);
-      y += docLines.length * 6 + 2;
+      doc.text('•', margin + 5, y);
+      const docLines = doc.splitTextToSize(docName, usableWidth - 20);
+      doc.text(docLines, margin + 14, y);
+      y += docLines.length * lineHeight + 2;
     });
-    y += 6;
+    y += 4;
   }
 
-  // Closing paragraph
+  // Closing
   checkPage(30);
-  doc.setFont('helvetica', 'bold');
-  const closingText = `We are looking forward to Travel ${data.country}, Kindly consider the application and grant us the necessary VISA.`;
+  const closingText = 'I kindly request you to consider our application and grant us the necessary visa to undertake this trip.';
   const closingLines = doc.splitTextToSize(closingText, usableWidth);
   doc.text(closingLines, margin, y);
-  y += closingLines.length * 6 + 12;
+  y += closingLines.length * lineHeight + 14;
 
-  // Thanking you
-  checkPage(40);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Thanking you,', pageWidth - margin - doc.getTextWidth('Thanking you,') - 10, y);
-  y += 6;
-  doc.text("You're faithfully,", pageWidth - margin - doc.getTextWidth("You're faithfully,") - 10, y);
+  // Sign off
+  checkPage(30);
+  doc.text('Yours faithfully,', margin, y);
   y += 20;
 
-  // Applicant names bold
+  // Applicant name
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  data.applicants.forEach((applicant) => {
-    checkPage(10);
-    doc.text(applicant.name.toUpperCase(), pageWidth - margin - doc.getTextWidth(applicant.name.toUpperCase()) - 10, y);
-    y += 8;
-  });
+  doc.text(primary.name, margin, y);
 
   doc.save(`Cover_Letter_${data.country}_${data.date.replace(/\//g, '-')}.pdf`);
 }
