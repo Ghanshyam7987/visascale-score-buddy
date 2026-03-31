@@ -231,25 +231,26 @@ function getCityFromConsularCity(consularCity: string): string {
 
 export async function generateCoverLetterPDF(data: CoverLetterData): Promise<void> {
   const children: Paragraph[] = [];
-  const fontSize = 22; // 11pt in half-points
+  const fontSize = 20; // 10pt in half-points for single-page fit
   const font = 'Times New Roman';
+  const sp = { before: 40, after: 40 }; // tight spacing
 
   const normalRun = (text: string, bold = false) => new TextRun({ text, font, size: fontSize, bold });
 
   // Date
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(`Date: ${data.date}`)] }));
+  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(`Date: ${data.date}`)] }));
 
   // Address block
-  children.push(new Paragraph({ children: [normalRun('To,')] }));
-  children.push(new Paragraph({ children: [normalRun('The Visa Officer')] }));
+  children.push(new Paragraph({ spacing: sp, children: [normalRun('To,')] }));
+  children.push(new Paragraph({ spacing: sp, children: [normalRun('The Visa Officer')] }));
 
   const city = getCityFromConsularCity(data.consularCity);
-  children.push(new Paragraph({ children: [normalRun(`Embassy of ${data.country}`)] }));
-  children.push(new Paragraph({ spacing: { after: 300 }, children: [normalRun(`${city}, India`)] }));
+  children.push(new Paragraph({ spacing: sp, children: [normalRun(`Embassy of ${data.country}`)] }));
+  children.push(new Paragraph({ spacing: { ...sp, after: 120 }, children: [normalRun(`${city}, India`)] }));
 
   // Subject
   children.push(new Paragraph({
-    spacing: { after: 200 },
+    spacing: { after: 100 },
     children: [
       normalRun('Subject: ', true),
       new TextRun({ text: 'Application for Tourist Visa', font, size: fontSize, bold: true, underline: { type: UnderlineType.SINGLE } }),
@@ -257,7 +258,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
   }));
 
   // Dear Sir/Madam
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun('Dear Sir/Madam,')] }));
+  children.push(new Paragraph({ spacing: { after: 100 }, children: [normalRun('Dear Sir/Madam,')] }));
 
   // Main paragraph
   const primary = data.applicants[0];
@@ -266,14 +267,14 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     mainPara += ' I will be travelling along with my family members:';
   }
 
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(mainPara)] }));
+  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(mainPara)] }));
 
   // Co-applicants as bullet list
   if (data.applicants.length > 1) {
     data.applicants.slice(1).forEach((applicant) => {
       const line = getApplicantLine(applicant);
       children.push(new Paragraph({
-        spacing: { after: 80 },
+        spacing: { after: 30 },
         indent: { left: 360 },
         children: [normalRun(`•${line}`)],
       }));
@@ -285,7 +286,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
   const departureFormatted = formatDate(data.dateOfDeparture);
   if (arrivalFormatted && departureFormatted) {
     children.push(new Paragraph({
-      spacing: { before: 200, after: 200 },
+      spacing: { before: 80, after: 80 },
       children: [normalRun(`Our intended travel dates are from ${arrivalFormatted} to ${departureFormatted}.`)],
     }));
   }
@@ -305,7 +306,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     ? ' I will be bearing the complete cost of the trip for all accompanying family members.'
     : ' I will be bearing the complete cost of the trip.';
 
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(bizPara)] }));
+  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(bizPara)] }));
 
   // Itinerary
   if (data.cities.length > 0 && data.cities.some(c => c.name)) {
@@ -314,14 +315,14 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     const regionText = isSchengen ? 'the Schengen region' : data.country;
 
     children.push(new Paragraph({
-      spacing: { after: 100 },
+      spacing: { after: 60 },
       children: [normalRun(`Our planned itinerary within ${regionText} is as follows:`)],
     }));
 
     data.cities.filter(c => c.name).forEach((cityItem) => {
       const padded = String(cityItem.nights).padStart(2, '0');
       children.push(new Paragraph({
-        spacing: { after: 60 },
+        spacing: { after: 20 },
         indent: { left: 360 },
         children: [normalRun(`• ${padded} Nights in ${cityItem.name}`)],
       }));
@@ -331,13 +332,13 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
   // Documents
   if (data.documents.length > 0) {
     children.push(new Paragraph({
-      spacing: { before: 200, after: 100 },
+      spacing: { before: 80, after: 60 },
       children: [normalRun('Please find enclosed the following supporting documents for our visa application:')],
     }));
 
     data.documents.forEach((docName) => {
       children.push(new Paragraph({
-        spacing: { after: 60 },
+        spacing: { after: 20 },
         indent: { left: 360 },
         children: [normalRun(`• ${docName}`)],
       }));
@@ -346,12 +347,12 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
 
   // Closing
   children.push(new Paragraph({
-    spacing: { before: 300, after: 400 },
+    spacing: { before: 120, after: 120 },
     children: [normalRun('I kindly request you to consider our application and grant us the necessary visa to undertake this trip.')],
   }));
 
   // Sign off
-  children.push(new Paragraph({ spacing: { after: 400 }, children: [normalRun('Yours faithfully,')] }));
+  children.push(new Paragraph({ spacing: { after: 120 }, children: [normalRun('Yours faithfully,')] }));
 
   // Name
   children.push(new Paragraph({ children: [normalRun(primary.name, true)] }));
@@ -360,7 +361,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     sections: [{
       properties: {
         page: {
-          margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          margin: { top: 720, right: 1080, bottom: 720, left: 1080 },
         },
       },
       children,
