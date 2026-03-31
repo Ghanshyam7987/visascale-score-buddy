@@ -267,14 +267,14 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     mainPara += ' I will be travelling along with my family members:';
   }
 
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(mainPara)] }));
+  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(mainPara)] }));
 
   // Co-applicants as bullet list
   if (data.applicants.length > 1) {
     data.applicants.slice(1).forEach((applicant) => {
       const line = getApplicantLine(applicant);
       children.push(new Paragraph({
-        spacing: { after: 80 },
+        spacing: { after: 30 },
         indent: { left: 360 },
         children: [normalRun(`•${line}`)],
       }));
@@ -286,7 +286,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
   const departureFormatted = formatDate(data.dateOfDeparture);
   if (arrivalFormatted && departureFormatted) {
     children.push(new Paragraph({
-      spacing: { before: 200, after: 200 },
+      spacing: { before: 80, after: 80 },
       children: [normalRun(`Our intended travel dates are from ${arrivalFormatted} to ${departureFormatted}.`)],
     }));
   }
@@ -306,7 +306,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     ? ' I will be bearing the complete cost of the trip for all accompanying family members.'
     : ' I will be bearing the complete cost of the trip.';
 
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(bizPara)] }));
+  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(bizPara)] }));
 
   // Itinerary
   if (data.cities.length > 0 && data.cities.some(c => c.name)) {
