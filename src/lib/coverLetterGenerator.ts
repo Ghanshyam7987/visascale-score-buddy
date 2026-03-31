@@ -1,11 +1,16 @@
-import { Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType } from 'docx';
+import { Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType } from 'docx';
 import { saveAs } from 'file-saver';
 import { allTravelCountries } from '@/lib/visaScoreCalculator';
 
 export const relationOptions = [
-  'My Mother', 'My Father', 'My Wife', 'My Husband',
-  'My Son', 'My Daughter', 'My Sister', 'My Brother',
-  'My Friend', 'My Relative', 'My Business Partner',
+  'Self', 'Wife', 'Husband', 'Son', 'Daughter',
+  'Mother', 'Father', 'Sister', 'Brother',
+  'Friend', 'Relative', 'Business Partner',
+];
+
+export const occupationOptions = [
+  'BUSINESS', 'SERVICE', 'SELF EMPLOYED', 'HOMEMAKER',
+  'STUDENT', 'RETIRED', 'NO OCCUPATION',
 ];
 
 export const coverLetterDocuments = [
@@ -35,6 +40,15 @@ export interface Applicant {
   name: string;
   passportNumber: string;
   relation?: string;
+  expiryDate?: string;
+  occupation?: string;
+}
+
+export interface TravelScheduleEntry {
+  fromDate: string;
+  toDate: string;
+  country: string;
+  modeOfTransport: string;
 }
 
 export interface CoverLetterData {
@@ -45,10 +59,13 @@ export interface CoverLetterData {
   dateOfArrival: string;
   dateOfDeparture: string;
   cities: { name: string; nights: number }[];
+  travelSchedule: TravelScheduleEntry[];
   documents: string[];
   designation?: string;
   businessName?: string;
   businessAddress?: string;
+  phone?: string;
+  email?: string;
 }
 
 export const embassyAddresses: Record<string, Record<string, string>> = {
@@ -117,7 +134,7 @@ export const embassyAddresses: Record<string, Record<string, string>> = {
   },
   'Singapore': {
     'Embassy - New Delhi': 'High Commission of the Republic of Singapore,\nE-6, Chandragupta Marg, Chanakyapuri,\nNew Delhi - 110021',
-    'Consulate - Mumbai': 'Consulate General of Singapore,\nMaker Chamber IV, 9th Floor,\n222, Jamnalal Bajaj Marg,\nNariman Point, Mumbai - 400021',
+    'Consulate - Mumbai': 'Consulate General of the Republic of Singapore,\nMaker Chamber IV, 9th Floor,\n222, Jamnalal Bajaj Marg,\nNariman Point, Mumbai - 400021',
     'Consulate - Chennai': 'Consulate General of Singapore,\nNo. 7, 5th Street, R.A. Puram,\nChennai - 600028',
     'Consulate - Kolkata': 'Honorary Consulate of Singapore,\n20B, Camac Street,\nKolkata - 700017',
     'Consulate - Hyderabad': 'Honorary Consulate of Singapore,\nPlot 12, Road No. 1,\nBanjara Hills, Hyderabad - 500034',
@@ -177,194 +194,259 @@ const embassyCountryNames = Object.keys(embassyAddresses);
 const allCoverLetterCountrySet = new Set([...embassyCountryNames, ...allTravelCountries]);
 export const visaCountries = Array.from(allCoverLetterCountrySet).sort();
 
-function formatDate(dateStr: string): string {
+function formatDateDDMMYYYY(dateStr: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
-  const day = d.getDate();
-  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const suffix = day === 1 || day === 21 || day === 31 ? 'st' : day === 2 || day === 22 ? 'nd' : day === 3 || day === 23 ? 'rd' : 'th';
-  return `${day}${suffix} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
-function getRelationTitle(relation: string, name: string): string {
-  // Extract first name for title prefix
-  const rel = relation.replace('My ', '').toLowerCase();
-  const titleMap: Record<string, string> = {
-    'mother': 'Mrs.',
-    'father': 'Mr.',
-    'wife': 'Mrs.',
-    'husband': 'Mr.',
-    'son': 'Mr.',
-    'daughter': 'Miss',
-    'sister': 'Miss',
-    'brother': 'Mr.',
-    'friend': '',
-    'relative': '',
-    'business partner': 'Mr./Ms.',
+function getConsularAddress(country: string, consularCity: string): string[] {
+  const addresses = embassyAddresses[country];
+  if (!addresses || !consularCity) return ['The Visa Officer', `Embassy of ${country}`, 'India'];
+  const fullAddress = addresses[consularCity] || '';
+  if (fullAddress) {
+    return fullAddress.split(',\n').map(l => l.trim());
+  }
+  return ['The Visa Officer', `Embassy of ${country}`, 'India'];
+}
+
+function getRelationLabel(relation: string): string {
+  if (!relation || relation === 'Self') return 'Self';
+  return relation;
+}
+
+function getTitleForRelation(relation: string): string {
+  const map: Record<string, string> = {
+    'Wife': 'Mrs.', 'Husband': 'Mr.', 'Mother': 'Mrs.', 'Father': 'Mr.',
+    'Son': 'Mr.', 'Daughter': 'Miss', 'Sister': 'Miss', 'Brother': 'Mr.',
+    'Friend': 'Mr./Ms.', 'Relative': 'Mr./Ms.', 'Business Partner': 'Mr./Ms.',
   };
-  const title = titleMap[rel] || '';
-  const relationLabel = relation.replace('My ', 'my ');
-  return { title, relationLabel } as any;
+  return map[relation] || 'Mr.';
 }
 
-function getApplicantLine(applicant: Applicant): string {
-  const rel = (applicant.relation || '').replace('My ', '').toLowerCase();
-  const titleMap: Record<string, string> = {
-    'mother': 'Mrs.', 'father': 'Mr.', 'wife': 'Mrs.', 'husband': 'Mr.',
-    'son': 'Mr.', 'daughter': 'Miss', 'sister': 'Miss', 'brother': 'Mr.',
-    'friend': '', 'relative': '', 'business partner': '',
-  };
-  const title = titleMap[rel] || '';
-  const relationLabel = (applicant.relation || '').replace('My ', 'my ');
-  const titlePart = title ? `${title} ` : '';
-  return ` ${relationLabel}, ${titlePart}${applicant.name} (Passport No. ${applicant.passportNumber})`;
-}
-
-function getCityFromConsularCity(consularCity: string): string {
-  if (consularCity.includes('New Delhi')) return 'New Delhi';
-  if (consularCity.includes('Mumbai')) return 'Mumbai';
-  if (consularCity.includes('Chennai')) return 'Chennai';
-  if (consularCity.includes('Kolkata')) return 'Kolkata';
-  if (consularCity.includes('Hyderabad')) return 'Hyderabad';
-  return 'New Delhi';
+// Helper to create table cell
+function makeCell(text: string, bold = false, fontSize = 18, width?: number): TableCell {
+  const cellBorder = { style: BorderStyle.SINGLE, size: 1, color: '000000' };
+  return new TableCell({
+    width: width ? { size: width, type: WidthType.DXA } : undefined,
+    borders: { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder },
+    margins: { top: 20, bottom: 20, left: 60, right: 60 },
+    children: [new Paragraph({
+      spacing: { before: 0, after: 0 },
+      children: [new TextRun({ text, font: 'Times New Roman', size: fontSize, bold })],
+    })],
+  });
 }
 
 export async function generateCoverLetterPDF(data: CoverLetterData): Promise<void> {
   const children: Paragraph[] = [];
-  const fontSize = 20; // 10pt in half-points for single-page fit
+  const fs = 18; // 9pt for single-page fit
   const font = 'Times New Roman';
-  const sp = { before: 40, after: 40 }; // tight spacing
+  const sp = { before: 20, after: 20 };
 
-  const normalRun = (text: string, bold = false) => new TextRun({ text, font, size: fontSize, bold });
+  const run = (text: string, bold = false, underline = false) => new TextRun({
+    text, font, size: fs, bold,
+    underline: underline ? { type: UnderlineType.SINGLE } : undefined,
+  });
 
-  // Date
-  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(`Date: ${data.date}`)] }));
+  // Date - right aligned
+  children.push(new Paragraph({
+    alignment: AlignmentType.RIGHT,
+    spacing: { after: 80 },
+    children: [run(`Date: ${data.date}`, true)],
+  }));
 
-  // Address block
-  children.push(new Paragraph({ spacing: sp, children: [normalRun('To,')] }));
-  children.push(new Paragraph({ spacing: sp, children: [normalRun('The Visa Officer')] }));
+  // To + full consulate address
+  children.push(new Paragraph({ spacing: sp, children: [run('To,')] }));
+  children.push(new Paragraph({ spacing: sp, children: [run('The Visa Officer,')] }));
 
-  const city = getCityFromConsularCity(data.consularCity);
-  children.push(new Paragraph({ spacing: sp, children: [normalRun(`Embassy of ${data.country}`)] }));
-  children.push(new Paragraph({ spacing: { ...sp, after: 120 }, children: [normalRun(`${city}, India`)] }));
+  const addressLines = getConsularAddress(data.country, data.consularCity);
+  addressLines.forEach((line, i) => {
+    children.push(new Paragraph({
+      spacing: i === addressLines.length - 1 ? { ...sp, after: 100 } : sp,
+      children: [run(line + (i < addressLines.length - 1 ? ',' : '.'), false, i === addressLines.length - 1)],
+    }));
+  });
 
   // Subject
   children.push(new Paragraph({
-    spacing: { after: 100 },
-    children: [
-      normalRun('Subject: ', true),
-      new TextRun({ text: 'Application for Tourist Visa', font, size: fontSize, bold: true, underline: { type: UnderlineType.SINGLE } }),
-    ],
+    spacing: { before: 60, after: 60 },
+    indent: { left: 2160 },
+    children: [run('Subject: Issuance of Tourist Visa', true, true)],
   }));
 
   // Dear Sir/Madam
-  children.push(new Paragraph({ spacing: { after: 100 }, children: [normalRun('Dear Sir/Madam,')] }));
+  children.push(new Paragraph({ spacing: { after: 60 }, children: [run('Dear Sir/Madam,')] }));
 
   // Main paragraph
   const primary = data.applicants[0];
-  let mainPara = `I, ${primary.name} (Passport No. ${primary.passportNumber}), wish to apply for a Tourist Visa to visit ${data.country} for tourism purposes.`;
-  if (data.applicants.length > 1) {
-    mainPara += ' I will be travelling along with my family members:';
-  }
+  const title = primary.relation ? getTitleForRelation(primary.relation) : 'Mr.';
+  const arrF = formatDateDDMMYYYY(data.dateOfArrival);
+  const depF = formatDateDDMMYYYY(data.dateOfDeparture);
+  const familyText = data.applicants.length > 1 ? ' along with my family' : '';
 
-  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(mainPara)] }));
-
-  // Co-applicants as bullet list
-  if (data.applicants.length > 1) {
-    data.applicants.slice(1).forEach((applicant) => {
-      const line = getApplicantLine(applicant);
-      children.push(new Paragraph({
-        spacing: { after: 30 },
-        indent: { left: 360 },
-        children: [normalRun(`•${line}`)],
-      }));
-    });
-  }
-
-  // Travel dates
-  const arrivalFormatted = formatDate(data.dateOfArrival);
-  const departureFormatted = formatDate(data.dateOfDeparture);
-  if (arrivalFormatted && departureFormatted) {
-    children.push(new Paragraph({
-      spacing: { before: 80, after: 80 },
-      children: [normalRun(`Our intended travel dates are from ${arrivalFormatted} to ${departureFormatted}.`)],
-    }));
-  }
-
-  // Business / Employment
-  let bizPara = '';
-  if (data.designation && data.businessName) {
-    bizPara = `I am the ${data.designation} of ${data.businessName.toUpperCase()}`;
-    if (data.businessAddress) bizPara += `, ${data.businessAddress}`;
-    bizPara += ` and possess sufficient financial resources to cover all travel-related expenses.`;
-  } else if (data.businessName) {
-    bizPara = `I am associated with ${data.businessName.toUpperCase()} and possess sufficient financial resources to cover all travel-related expenses.`;
-  } else {
-    bizPara = `I possess sufficient financial resources to cover all travel-related expenses.`;
-  }
-  bizPara += data.applicants.length > 1
-    ? ' I will be bearing the complete cost of the trip for all accompanying family members.'
-    : ' I will be bearing the complete cost of the trip.';
-
-  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(bizPara)] }));
-
-  // Itinerary
-  if (data.cities.length > 0 && data.cities.some(c => c.name)) {
-    const schengenCountries = ['Switzerland', 'Germany', 'France', 'Italy', 'Austria', 'Belgium', 'Netherlands', 'Spain', 'Portugal', 'Greece'];
-    const isSchengen = schengenCountries.some(sc => data.country.includes(sc));
-    const regionText = isSchengen ? 'the Schengen region' : data.country;
-
-    children.push(new Paragraph({
-      spacing: { after: 60 },
-      children: [normalRun(`Our planned itinerary within ${regionText} is as follows:`)],
-    }));
-
-    data.cities.filter(c => c.name).forEach((cityItem) => {
-      const padded = String(cityItem.nights).padStart(2, '0');
-      children.push(new Paragraph({
-        spacing: { after: 20 },
-        indent: { left: 360 },
-        children: [normalRun(`• ${padded} Nights in ${cityItem.name}`)],
-      }));
-    });
-  }
-
-  // Documents
-  if (data.documents.length > 0) {
-    children.push(new Paragraph({
-      spacing: { before: 80, after: 60 },
-      children: [normalRun('Please find enclosed the following supporting documents for our visa application:')],
-    }));
-
-    data.documents.forEach((docName) => {
-      children.push(new Paragraph({
-        spacing: { after: 20 },
-        indent: { left: 360 },
-        children: [normalRun(`• ${docName}`)],
-      }));
-    });
-  }
-
-  // Closing
+  let mainText = `I, the undersigned, `;
   children.push(new Paragraph({
-    spacing: { before: 120, after: 120 },
-    children: [normalRun('I kindly request you to consider our application and grant us the necessary visa to undertake this trip.')],
+    spacing: { after: 60 },
+    children: [
+      run(mainText),
+      run(`${title} ${primary.name}`, true),
+      run(` holding Indian passport no `),
+      run(primary.passportNumber, true),
+      run(` like to travel ${data.country} from ${arrF} to ${depF}${familyText} for tourism purpose and to explore the beautiful cities of ${data.country}.`),
+    ],
   }));
 
-  // Sign off
-  children.push(new Paragraph({ spacing: { after: 120 }, children: [normalRun('Yours faithfully,')] }));
+  // Traveler's details table
+  children.push(new Paragraph({
+    spacing: { before: 60, after: 40 },
+    children: [run('Below are the traveler\'s details:', true, true)],
+  }));
+
+  // Table header
+  const headerRow = new TableRow({
+    children: [
+      makeCell('Name', true, fs, 2400),
+      makeCell('Passport Number', true, fs, 1800),
+      makeCell('Expiry Date', true, fs, 1200),
+      makeCell('Relation', true, fs, 1100),
+      makeCell('Occupation', true, fs, 1800),
+    ],
+  });
+
+  const dataRows = data.applicants.map((app) => {
+    const rel = app.relation || 'Self';
+    const appTitle = rel === 'Self' ? title : getTitleForRelation(rel);
+    const expiry = app.expiryDate ? formatDateDDMMYYYY(app.expiryDate) : '';
+    return new TableRow({
+      children: [
+        makeCell(`${appTitle} ${app.name}`, true, fs, 2400),
+        makeCell(app.passportNumber, false, fs, 1800),
+        makeCell(expiry, false, fs, 1200),
+        makeCell(getRelationLabel(rel), false, fs, 1100),
+        makeCell(app.occupation || '', false, fs, 1800),
+      ],
+    });
+  });
+
+  children.push(new Paragraph({ children: [] })); // spacer
+  const travelersTable = new Table({
+    width: { size: 8300, type: WidthType.DXA },
+    columnWidths: [2400, 1800, 1200, 1100, 1800],
+    rows: [headerRow, ...dataRows],
+  });
+
+  // Travel schedule table
+  const hasSchedule = data.travelSchedule && data.travelSchedule.length > 0 && data.travelSchedule.some(s => s.country);
+
+  // Business paragraph
+  let bizText = '';
+  if (data.designation && data.businessName) {
+    const coApplicantWithRelation = data.applicants.find(a => a.relation === 'Wife' || a.relation === 'Husband');
+    bizText = `I am ${data.designation} in "${data.businessName.toUpperCase()}"`;
+    if (coApplicantWithRelation) {
+      const spouseTitle = getTitleForRelation(coApplicantWithRelation.relation!);
+      bizText += ` along with my ${(coApplicantWithRelation.relation || '').toLowerCase()} ${spouseTitle} ${coApplicantWithRelation.name}`;
+    }
+    bizText += '.';
+  } else if (data.businessName) {
+    bizText = `I am associated with "${data.businessName.toUpperCase()}".`;
+  }
+
+  // Build the document with tables mixed in
+  const sectionChildren: (Paragraph | Table)[] = [...children];
+
+  sectionChildren.push(travelersTable);
+
+  // Travel schedule
+  if (hasSchedule) {
+    sectionChildren.push(new Paragraph({
+      spacing: { before: 80, after: 40 },
+      children: [run('Kindly find our travel schedule as below:', true, true)],
+    }));
+
+    const schedHeaderRow = new TableRow({
+      children: [
+        makeCell('Date', true, fs, 2800),
+        makeCell('Country', true, fs, 2600),
+        makeCell('Mode of Transport and Stay', true, fs, 2900),
+      ],
+    });
+
+    const schedRows = data.travelSchedule.filter(s => s.country).map((entry) => {
+      const from = formatDateDDMMYYYY(entry.fromDate);
+      const to = formatDateDDMMYYYY(entry.toDate);
+      return new TableRow({
+        children: [
+          makeCell(`${from} to ${to}`, false, fs, 2800),
+          makeCell(entry.country, false, fs, 2600),
+          makeCell(entry.modeOfTransport, false, fs, 2900),
+        ],
+      });
+    });
+
+    sectionChildren.push(new Table({
+      width: { size: 8300, type: WidthType.DXA },
+      columnWidths: [2800, 2600, 2900],
+      rows: [schedHeaderRow, ...schedRows],
+    }));
+  }
+
+  // Business line
+  if (bizText) {
+    sectionChildren.push(new Paragraph({ spacing: { before: 80, after: 40 }, children: [run(bizText)] }));
+  }
+
+  // Expenses
+  sectionChildren.push(new Paragraph({
+    spacing: { after: 40 },
+    children: [run('All expenses of this trip will be borne by me.')],
+  }));
+
+  // Contact info line
+  if (data.phone || data.email) {
+    sectionChildren.push(new Paragraph({
+      spacing: { after: 40 },
+      children: [run('If you need any more information, kindly call or email me on below given details.', false, true)],
+    }));
+  }
+
+  // Request
+  sectionChildren.push(new Paragraph({
+    spacing: { after: 40 },
+    children: [run('I hereby request to your good office that kindly issue us visa and oblige.')],
+  }));
+
+  // Closing
+  sectionChildren.push(new Paragraph({ spacing: { before: 60, after: 20 }, children: [run('Thanking you,')] }));
+  sectionChildren.push(new Paragraph({ spacing: { after: 80 }, children: [run('Yours Faithfully,')] }));
 
   // Name
-  children.push(new Paragraph({ children: [normalRun(primary.name, true)] }));
+  sectionChildren.push(new Paragraph({ children: [run(primary.name, true)] }));
+
+  // Contact details
+  if (data.phone) {
+    sectionChildren.push(new Paragraph({
+      spacing: { before: 20 },
+      children: [run('(M): ', true), run(`+91 ${data.phone}`)],
+    }));
+  }
+  if (data.email) {
+    sectionChildren.push(new Paragraph({
+      children: [run('Email: ', true), run(data.email)],
+    }));
+  }
 
   const wordDoc = new Document({
     sections: [{
       properties: {
         page: {
-          margin: { top: 720, right: 1080, bottom: 720, left: 1080 },
+          margin: { top: 720, right: 900, bottom: 720, left: 900 },
         },
       },
-      children,
+      children: sectionChildren,
     }],
   });
 
