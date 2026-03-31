@@ -315,14 +315,14 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     const regionText = isSchengen ? 'the Schengen region' : data.country;
 
     children.push(new Paragraph({
-      spacing: { after: 100 },
+      spacing: { after: 60 },
       children: [normalRun(`Our planned itinerary within ${regionText} is as follows:`)],
     }));
 
     data.cities.filter(c => c.name).forEach((cityItem) => {
       const padded = String(cityItem.nights).padStart(2, '0');
       children.push(new Paragraph({
-        spacing: { after: 60 },
+        spacing: { after: 20 },
         indent: { left: 360 },
         children: [normalRun(`• ${padded} Nights in ${cityItem.name}`)],
       }));
@@ -332,13 +332,13 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
   // Documents
   if (data.documents.length > 0) {
     children.push(new Paragraph({
-      spacing: { before: 200, after: 100 },
+      spacing: { before: 80, after: 60 },
       children: [normalRun('Please find enclosed the following supporting documents for our visa application:')],
     }));
 
     data.documents.forEach((docName) => {
       children.push(new Paragraph({
-        spacing: { after: 60 },
+        spacing: { after: 20 },
         indent: { left: 360 },
         children: [normalRun(`• ${docName}`)],
       }));
@@ -347,12 +347,12 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
 
   // Closing
   children.push(new Paragraph({
-    spacing: { before: 300, after: 400 },
+    spacing: { before: 120, after: 120 },
     children: [normalRun('I kindly request you to consider our application and grant us the necessary visa to undertake this trip.')],
   }));
 
   // Sign off
-  children.push(new Paragraph({ spacing: { after: 400 }, children: [normalRun('Yours faithfully,')] }));
+  children.push(new Paragraph({ spacing: { after: 120 }, children: [normalRun('Yours faithfully,')] }));
 
   // Name
   children.push(new Paragraph({ children: [normalRun(primary.name, true)] }));
@@ -361,7 +361,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
     sections: [{
       properties: {
         page: {
-          margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          margin: { top: 720, right: 1080, bottom: 720, left: 1080 },
         },
       },
       children,
