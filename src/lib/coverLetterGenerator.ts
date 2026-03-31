@@ -231,25 +231,26 @@ function getCityFromConsularCity(consularCity: string): string {
 
 export async function generateCoverLetterPDF(data: CoverLetterData): Promise<void> {
   const children: Paragraph[] = [];
-  const fontSize = 22; // 11pt in half-points
+  const fontSize = 20; // 10pt in half-points for single-page fit
   const font = 'Times New Roman';
+  const sp = { before: 40, after: 40 }; // tight spacing
 
   const normalRun = (text: string, bold = false) => new TextRun({ text, font, size: fontSize, bold });
 
   // Date
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun(`Date: ${data.date}`)] }));
+  children.push(new Paragraph({ spacing: { after: 80 }, children: [normalRun(`Date: ${data.date}`)] }));
 
   // Address block
-  children.push(new Paragraph({ children: [normalRun('To,')] }));
-  children.push(new Paragraph({ children: [normalRun('The Visa Officer')] }));
+  children.push(new Paragraph({ spacing: sp, children: [normalRun('To,')] }));
+  children.push(new Paragraph({ spacing: sp, children: [normalRun('The Visa Officer')] }));
 
   const city = getCityFromConsularCity(data.consularCity);
-  children.push(new Paragraph({ children: [normalRun(`Embassy of ${data.country}`)] }));
-  children.push(new Paragraph({ spacing: { after: 300 }, children: [normalRun(`${city}, India`)] }));
+  children.push(new Paragraph({ spacing: sp, children: [normalRun(`Embassy of ${data.country}`)] }));
+  children.push(new Paragraph({ spacing: { ...sp, after: 120 }, children: [normalRun(`${city}, India`)] }));
 
   // Subject
   children.push(new Paragraph({
-    spacing: { after: 200 },
+    spacing: { after: 100 },
     children: [
       normalRun('Subject: ', true),
       new TextRun({ text: 'Application for Tourist Visa', font, size: fontSize, bold: true, underline: { type: UnderlineType.SINGLE } }),
@@ -257,7 +258,7 @@ export async function generateCoverLetterPDF(data: CoverLetterData): Promise<voi
   }));
 
   // Dear Sir/Madam
-  children.push(new Paragraph({ spacing: { after: 200 }, children: [normalRun('Dear Sir/Madam,')] }));
+  children.push(new Paragraph({ spacing: { after: 100 }, children: [normalRun('Dear Sir/Madam,')] }));
 
   // Main paragraph
   const primary = data.applicants[0];
