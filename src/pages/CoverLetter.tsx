@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Plus, Trash2, Download, Loader2, MapPin, Calendar, Plane, Search, ChevronsUpDown, Briefcase } from 'lucide-react';
+import { FileText, Plus, Trash2, Download, Loader2, MapPin, Calendar, Plane, Search, ChevronsUpDown, Briefcase, Phone } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +12,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { generateCoverLetterPDF, embassyAddresses, visaCountries, CoverLetterData, Applicant, relationOptions, coverLetterDocuments } from '@/lib/coverLetterGenerator';
+import {
+  generateCoverLetterPDF, embassyAddresses, visaCountries,
+  CoverLetterData, Applicant, TravelScheduleEntry,
+  relationOptions, occupationOptions, coverLetterDocuments
+} from '@/lib/coverLetterGenerator';
 
 const CoverLetter = () => {
   const { toast } = useToast();
@@ -21,16 +25,22 @@ const CoverLetter = () => {
   const [countrySearch, setCountrySearch] = useState('');
   const [consularCity, setConsularCity] = useState('');
   const [date, setDate] = useState(new Date().toLocaleDateString('en-IN'));
-  const [applicants, setApplicants] = useState<Applicant[]>([{ name: '', passportNumber: '' }]);
+  const [applicants, setApplicants] = useState<Applicant[]>([
+    { name: '', passportNumber: '', relation: 'Self', expiryDate: '', occupation: '' }
+  ]);
   const [dateOfArrival, setDateOfArrival] = useState('');
   const [dateOfDeparture, setDateOfDeparture] = useState('');
-  const [cities, setCities] = useState<{ name: string; nights: number }[]>([{ name: '', nights: 1 }]);
+  const [travelSchedule, setTravelSchedule] = useState<TravelScheduleEntry[]>([
+    { fromDate: '', toDate: '', country: '', modeOfTransport: '' }
+  ]);
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
   const [designation, setDesignation] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [businessAddress, setBusinessAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
 
-  const addApplicant = () => setApplicants([...applicants, { name: '', passportNumber: '', relation: '' }]);
+  const addApplicant = () => setApplicants([...applicants, { name: '', passportNumber: '', relation: '', expiryDate: '', occupation: '' }]);
   const removeApplicant = (i: number) => setApplicants(applicants.filter((_, idx) => idx !== i));
   const updateApplicant = (i: number, field: keyof Applicant, value: string) => {
     const updated = [...applicants];
@@ -38,8 +48,8 @@ const CoverLetter = () => {
     setApplicants(updated);
   };
 
-  const addCity = () => setCities([...cities, { name: '', nights: 1 }]);
-  const removeCity = (i: number) => setCities(cities.filter((_, idx) => idx !== i));
+  const addScheduleEntry = () => setTravelSchedule([...travelSchedule, { fromDate: '', toDate: '', country: '', modeOfTransport: '' }]);
+  const removeScheduleEntry = (i: number) => setTravelSchedule(travelSchedule.filter((_, idx) => idx !== i));
 
   const toggleDocument = (doc: string) => {
     setSelectedDocuments(prev => prev.includes(doc) ? prev.filter(d => d !== doc) : [...prev, doc]);
@@ -56,17 +66,11 @@ const CoverLetter = () => {
     setIsGenerating(true);
     try {
       const data: CoverLetterData = {
-        date,
-        country,
-        consularCity,
-        applicants,
-        dateOfArrival,
-        dateOfDeparture,
-        cities: cities.filter(c => c.name),
+        date, country, consularCity, applicants,
+        dateOfArrival, dateOfDeparture,
+        cities: [], travelSchedule: travelSchedule.filter(s => s.country),
         documents: selectedDocuments,
-        designation,
-        businessName,
-        businessAddress,
+        designation, businessName, businessAddress, phone, email,
       };
       await generateCoverLetterPDF(data);
       toast({ title: 'Word File Generated!', description: 'Cover letter downloaded as .docx' });
@@ -136,7 +140,7 @@ const CoverLetter = () => {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Applicants</CardTitle>
+                <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Traveler Details</CardTitle>
                 <Button size="sm" variant="outline" onClick={addApplicant}><Plus className="h-4 w-4 mr-1" />Add</Button>
               </div>
             </CardHeader>
@@ -144,19 +148,28 @@ const CoverLetter = () => {
               {applicants.map((applicant, i) => (
                 <div key={i} className="p-3 rounded-lg bg-muted/50 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{i === 0 ? 'Main Applicant' : `Applicant ${i + 1}`}</span>
-                    {applicants.length > 1 && i > 0 && <Button size="sm" variant="ghost" onClick={() => removeApplicant(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                    <span className="text-sm font-medium">{i === 0 ? 'Main Applicant' : `Traveler ${i + 1}`}</span>
+                    {i > 0 && <Button size="sm" variant="ghost" onClick={() => removeApplicant(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
                   </div>
                   <Input placeholder="Full Name" value={applicant.name} onChange={(e) => updateApplicant(i, 'name', e.target.value)} />
-                  <Input placeholder="Passport Number" value={applicant.passportNumber} onChange={(e) => updateApplicant(i, 'passportNumber', e.target.value)} />
-                  {i > 0 && (
-                    <Select value={applicant.relation || ''} onValueChange={(v) => updateApplicant(i, 'relation', v)}>
-                      <SelectTrigger><SelectValue placeholder="Select Relation" /></SelectTrigger>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input placeholder="Passport Number" value={applicant.passportNumber} onChange={(e) => updateApplicant(i, 'passportNumber', e.target.value)} />
+                    <Input type="date" placeholder="Expiry Date" value={applicant.expiryDate || ''} onChange={(e) => updateApplicant(i, 'expiryDate', e.target.value)} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select value={applicant.relation || (i === 0 ? 'Self' : '')} onValueChange={(v) => updateApplicant(i, 'relation', v)}>
+                      <SelectTrigger><SelectValue placeholder="Relation" /></SelectTrigger>
                       <SelectContent>
                         {relationOptions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  )}
+                    <Select value={applicant.occupation || ''} onValueChange={(v) => updateApplicant(i, 'occupation', v)}>
+                      <SelectTrigger><SelectValue placeholder="Occupation" /></SelectTrigger>
+                      <SelectContent>
+                        {occupationOptions.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               ))}
             </CardContent>
@@ -182,18 +195,60 @@ const CoverLetter = () => {
           </Card>
         </motion.div>
 
-        {/* Employer / Business */}
+        {/* Travel Schedule */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" />Travel Schedule</CardTitle>
+                <Button size="sm" variant="outline" onClick={addScheduleEntry}><Plus className="h-4 w-4 mr-1" />Add</Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {travelSchedule.map((entry, i) => (
+                <div key={i} className="p-3 rounded-lg bg-muted/50 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Entry {i + 1}</span>
+                    {travelSchedule.length > 1 && <Button size="sm" variant="ghost" onClick={() => removeScheduleEntry(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">From</Label>
+                      <Input type="date" value={entry.fromDate} onChange={(e) => {
+                        const u = [...travelSchedule]; u[i].fromDate = e.target.value; setTravelSchedule(u);
+                      }} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">To</Label>
+                      <Input type="date" value={entry.toDate} onChange={(e) => {
+                        const u = [...travelSchedule]; u[i].toDate = e.target.value; setTravelSchedule(u);
+                      }} />
+                    </div>
+                  </div>
+                  <Input placeholder="Country / City" value={entry.country} onChange={(e) => {
+                    const u = [...travelSchedule]; u[i].country = e.target.value; setTravelSchedule(u);
+                  }} />
+                  <Input placeholder="Mode of Transport & Stay (e.g., By Air, Stay at Hotel)" value={entry.modeOfTransport} onChange={(e) => {
+                    const u = [...travelSchedule]; u[i].modeOfTransport = e.target.value; setTravelSchedule(u);
+                  }} />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Employer / Business */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Briefcase className="h-5 w-5 text-primary" />Employer / Business</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Designation</Label>
-                <Input placeholder="e.g., Proprietor, Director, Partner, Employee" value={designation} onChange={(e) => setDesignation(e.target.value)} />
+                <Input placeholder="e.g., Proprietor, Partner, Director" value={designation} onChange={(e) => setDesignation(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Business / Employer Name</Label>
-                <Input placeholder="e.g., SIDDHARTH EXIM" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+                <Input placeholder="e.g., DEVI FABRICS" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Business Address (optional)</Label>
@@ -203,26 +258,19 @@ const CoverLetter = () => {
           </Card>
         </motion.div>
 
-        {/* Cities & Stay */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        {/* Contact Details */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.17 }}>
           <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" />Travelling Cities</CardTitle>
-                <Button size="sm" variant="outline" onClick={addCity}><Plus className="h-4 w-4 mr-1" />Add</Button>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Phone className="h-5 w-5 text-primary" />Contact Details</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Mobile Number</Label>
+                <Input placeholder="e.g., 9099378880" value={phone} onChange={(e) => setPhone(e.target.value)} />
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {cities.map((city, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input placeholder="City Name" value={city.name} onChange={(e) => { const u = [...cities]; u[i].name = e.target.value; setCities(u); }} className="flex-1" />
-                  <div className="flex items-center gap-1">
-                    <Input type="number" min={1} value={city.nights} onChange={(e) => { const u = [...cities]; u[i].nights = parseInt(e.target.value) || 1; setCities(u); }} className="w-16 text-center" />
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">Nights</span>
-                  </div>
-                  {cities.length > 1 && <Button size="icon" variant="ghost" onClick={() => removeCity(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
-                </div>
-              ))}
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input type="email" placeholder="e.g., name@gmail.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
             </CardContent>
           </Card>
         </motion.div>
@@ -237,11 +285,7 @@ const CoverLetter = () => {
               <div className="space-y-2">
                 {coverLetterDocuments.map((doc) => (
                   <div key={doc} className="flex items-center space-x-3">
-                    <Checkbox
-                      id={`cl-doc-${doc}`}
-                      checked={selectedDocuments.includes(doc)}
-                      onCheckedChange={() => toggleDocument(doc)}
-                    />
+                    <Checkbox id={`cl-doc-${doc}`} checked={selectedDocuments.includes(doc)} onCheckedChange={() => toggleDocument(doc)} />
                     <Label htmlFor={`cl-doc-${doc}`} className="text-sm cursor-pointer flex-1">{doc}</Label>
                   </div>
                 ))}
