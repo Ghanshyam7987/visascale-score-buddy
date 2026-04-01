@@ -160,7 +160,7 @@ const CoverLetter = () => {
                       {relationOptions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <Select value={applicant.occupation || 'BUSINESS'} onValueChange={(v) => updateApplicant(i, 'occupation', v)}>
+                  <Select value={applicant.occupation || undefined} onValueChange={(v) => updateApplicant(i, 'occupation', v)}>
                     <SelectTrigger><SelectValue placeholder="Occupation" /></SelectTrigger>
                     <SelectContent>
                       {occupationOptions.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
