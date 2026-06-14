@@ -25,83 +25,130 @@ export interface AnalysisResults {
   ruleD: RuleResult & { avgRetentionPct: number };
 }
 
-/** Generate 6 months of realistic dummy transactions. */
-export function simulatePDFExtraction(_file: File): Promise<Transaction[]> {
-  return new Promise((resolve) => {
-    const txns: Transaction[] = [];
-    const today = new Date();
-    const start = new Date(today);
-    start.setMonth(start.getMonth() - 6);
-    start.setDate(1);
+/** Real on-device PDF parser for Indian bank statements (SBI/HDFC/ICICI/Axis/Kotak etc). */
+export async function extractTransactionsFromPDF(file: File): Promise<Transaction[]> {
+  // Lazy-load pdfjs to keep bundle small
+  const pdfjsLib: any = await import('pdfjs-dist/build/pdf.mjs');
+  // Use a CDN worker matching the installed version
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
-    let balance = 180000;
-    const salaryAmount = 85000;
-    const merchants = [
-      'AMAZON RETAIL', 'SWIGGY ORDER', 'ZOMATO', 'UBER INDIA', 'BIG BAZAAR',
-      'ELECTRICITY BILL', 'MOBILE RECHARGE', 'NETFLIX SUBSCRIPTION',
-      'PETROL PUMP HP', 'DMART GROCERIES', 'IRCTC TRAIN', 'MAKEMYTRIP',
-    ];
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
-    const cursor = new Date(start);
-    while (cursor <= today) {
-      const day = cursor.getDate();
-      const month = cursor.getMonth();
-      const year = cursor.getFullYear();
+  // Build line-grouped text per page using y-coordinates
+  const lines: string[] = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const rows = new Map<number, { x: number; str: string }[]>();
+    for (const item of content.items as any[]) {
+      if (!item.str || !item.transform) continue;
+      const y = Math.round(item.transform[5]);
+      if (!rows.has(y)) rows.set(y, []);
+      rows.get(y)!.push({ x: item.transform[4], str: item.str });
+    }
+    const sortedYs = Array.from(rows.keys()).sort((a, b) => b - a);
+    for (const y of sortedYs) {
+      const line = rows.get(y)!
+        .sort((a, b) => a.x - b.x)
+        .map((s) => s.str)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (line) lines.push(line);
+    }
+  }
 
-      // Salary credit between 1st-7th
-      if (day === 2 + (month % 4)) {
-        const variance = (Math.random() - 0.5) * 0.06 * salaryAmount;
-        const amt = Math.round(salaryAmount + variance);
-        balance += amt;
-        txns.push({
-          date: new Date(year, month, day),
-          description: 'NEFT SALARY CR ACME CORP',
-          deposit: amt,
-          withdrawal: 0,
-          balance,
-        });
+  return parseTransactionLines(lines);
+}
+
+/** Parses lines from any common Indian bank statement format. */
+function parseTransactionLines(lines: string[]): Transaction[] {
+  const txns: Transaction[] = [];
+  // Date formats: 01/04/2024, 01-04-2024, 01 Apr 2024, 01-Apr-2024, 01-Apr-24
+  const dateRe =
+    /(\b\d{1,2}[\/\-\s](?:\d{1,2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\/\-\s]\d{2,4}\b)/i;
+  // Number with optional commas and decimals, optional Dr/Cr suffix
+  const numRe = /([\d,]+\.\d{2})(?:\s*(Dr|Cr))?/gi;
+
+  for (const raw of lines) {
+    const line = raw.replace(/\u00a0/g, ' ').trim();
+    const dm = line.match(dateRe);
+    if (!dm) continue;
+    const date = parseDate(dm[1]);
+    if (!date) continue;
+
+    // Extract all monetary numbers
+    const nums: { val: number; suffix?: string; idx: number }[] = [];
+    let m: RegExpExecArray | null;
+    numRe.lastIndex = 0;
+    while ((m = numRe.exec(line)) !== null) {
+      nums.push({ val: parseFloat(m[1].replace(/,/g, '')), suffix: m[2], idx: m.index });
+    }
+    if (nums.length < 2) continue; // need at least amount + balance
+
+    // Description = between date and first number
+    const firstNumIdx = nums[0].idx;
+    const afterDateIdx = (dm.index ?? 0) + dm[1].length;
+    let description = line.slice(afterDateIdx, firstNumIdx).trim();
+    description = description.replace(/^[\-\|\s]+|[\-\|\s]+$/g, '');
+    if (!description) description = '—';
+
+    // Last number = balance. Previous numbers = amount(s).
+    const balance = nums[nums.length - 1].val;
+    let deposit = 0;
+    let withdrawal = 0;
+
+    if (nums.length >= 3) {
+      // [withdrawal, deposit, balance] OR [deposit, withdrawal, balance] — Indian statements vary.
+      // Most common: Withdrawal | Deposit | Balance. A zero/blank column shows as missing.
+      // Since we matched only non-zero amounts, treat: if 3 nums → first=wd, second=dep
+      withdrawal = nums[0].val;
+      deposit = nums[1].val;
+    } else {
+      // 2 numbers: amount + balance. Use Dr/Cr suffix, or infer from previous balance.
+      const amt = nums[0];
+      if (amt.suffix?.toLowerCase() === 'cr') {
+        deposit = amt.val;
+      } else if (amt.suffix?.toLowerCase() === 'dr') {
+        withdrawal = amt.val;
+      } else if (txns.length > 0) {
+        const prevBal = txns[txns.length - 1].balance;
+        if (balance > prevBal) deposit = amt.val;
+        else withdrawal = amt.val;
+      } else {
+        // First row, no signal — assume withdrawal
+        withdrawal = amt.val;
       }
-
-      // 1-3 random spends per day
-      const spendCount = Math.floor(Math.random() * 3);
-      for (let s = 0; s < spendCount; s++) {
-        const amt = Math.round(200 + Math.random() * 4500);
-        balance -= amt;
-        txns.push({
-          date: new Date(year, month, day),
-          description: merchants[Math.floor(Math.random() * merchants.length)],
-          deposit: 0,
-          withdrawal: amt,
-          balance,
-        });
-      }
-
-      cursor.setDate(cursor.getDate() + 1);
     }
 
-    // Inject a suspicious large deposit in last 20 days (to demo Rule A)
-    const suspicious = new Date(today);
-    suspicious.setDate(suspicious.getDate() - 12);
-    const bigAmt = 650000;
-    balance += bigAmt;
-    txns.push({
-      date: suspicious,
-      description: 'IMPS TRANSFER CR - SELF',
-      deposit: bigAmt,
-      withdrawal: 0,
-      balance,
-    });
+    txns.push({ date, description, deposit, withdrawal, balance });
+  }
 
-    txns.sort((a, b) => a.date.getTime() - b.date.getTime());
-    // Recompute balances cleanly
-    let run = 180000;
-    for (const t of txns) {
-      run += t.deposit - t.withdrawal;
-      t.balance = run;
-    }
+  // Sort chronologically
+  txns.sort((a, b) => a.date.getTime() - b.date.getTime());
+  return txns;
+}
 
-    setTimeout(() => resolve(txns), 600);
-  });
+function parseDate(s: string): Date | null {
+  const months: Record<string, number> = {
+    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  };
+  const parts = s.split(/[\/\-\s]+/);
+  if (parts.length !== 3) return null;
+  let [d, mo, y] = parts;
+  let day = parseInt(d, 10);
+  let month: number;
+  const moLower = mo.toLowerCase();
+  if (months[moLower] !== undefined) month = months[moLower];
+  else month = parseInt(mo, 10) - 1;
+  let year = parseInt(y, 10);
+  if (year < 100) year += 2000;
+  if (isNaN(day) || isNaN(month) || isNaN(year) || month < 0 || month > 11) return null;
+  const dt = new Date(year, month, day);
+  return isNaN(dt.getTime()) ? null : dt;
 }
 
 function monthKey(d: Date) {
