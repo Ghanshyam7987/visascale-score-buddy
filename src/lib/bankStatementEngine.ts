@@ -27,11 +27,11 @@ export interface AnalysisResults {
 
 /** Real on-device PDF parser for Indian bank statements (SBI/HDFC/ICICI/Axis/Kotak etc). */
 export async function extractTransactionsFromPDF(file: File): Promise<Transaction[]> {
-  // Lazy-load pdfjs to keep bundle small
-  const pdfjsLib: any = await import('pdfjs-dist/build/pdf.mjs');
-  // Use a CDN worker matching the installed version
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  // Lazy-load pdfjs (main entry resolves to build/pdf.mjs)
+  const pdfjsLib: any = await import('pdfjs-dist');
+  // Load the worker as a Vite URL so it's bundled & served by the dev server
+  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
