@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  simulatePDFExtraction, runVisaMathEngine, AnalysisResults, RuleResult,
+  extractTransactionsFromPDF, runVisaMathEngine, AnalysisResults, RuleResult,
 } from '@/lib/bankStatementEngine';
 
 const LOADING_STEPS = [
@@ -28,11 +28,13 @@ export function BankStatementAnalyzer() {
   const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [results, setResults] = useState<AnalysisResults | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFile = useCallback(async (f: File) => {
     if (!f.name.toLowerCase().endsWith('.pdf')) return;
     setFile(f);
     setResults(null);
+    setError(null);
     setIsAnalyzing(true);
     setLoadingStep(0);
 
@@ -40,27 +42,47 @@ export function BankStatementAnalyzer() {
       setLoadingStep((s) => (s + 1 < LOADING_STEPS.length ? s + 1 : s));
     }, 700);
 
-    const txns = await simulatePDFExtraction(f);
-    const res = runVisaMathEngine(txns);
-
-    clearInterval(stepInterval);
-    setLoadingStep(LOADING_STEPS.length - 1);
-    setTimeout(() => {
-      setResults(res);
+    try {
+      const txns = await extractTransactionsFromPDF(f);
+      if (txns.length === 0) {
+        throw new Error(
+          'Could not detect any transactions. The PDF may be scanned/image-based or password protected. Please upload a text-based PDF statement downloaded from your bank.',
+        );
+      }
+      const res = runVisaMathEngine(txns);
+      clearInterval(stepInterval);
+      setLoadingStep(LOADING_STEPS.length - 1);
+      setTimeout(() => {
+        setResults(res);
+        setIsAnalyzing(false);
+      }, 400);
+    } catch (e: any) {
+      clearInterval(stepInterval);
+      setError(e?.message || 'Failed to read this PDF.');
       setIsAnalyzing(false);
-    }, 500);
+    }
   }, []);
 
   const reset = () => {
     setFile(null);
     setResults(null);
     setIsAnalyzing(false);
+    setError(null);
   };
 
   return (
     <div className="space-y-6">
       {!file && !results && (
         <DropZone dragOver={dragOver} setDragOver={setDragOver} onFile={handleFile} />
+      )}
+
+      {error && (
+        <Card className="border-rose-300 bg-rose-50 dark:bg-rose-950/30">
+          <CardContent className="p-4 space-y-3">
+            <p className="text-sm text-rose-700 dark:text-rose-300">{error}</p>
+            <Button size="sm" variant="outline" onClick={reset}>Try another file</Button>
+          </CardContent>
+        </Card>
       )}
 
       <AnimatePresence mode="wait">
