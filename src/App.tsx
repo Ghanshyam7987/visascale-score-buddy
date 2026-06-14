@@ -16,6 +16,7 @@ import AdminLogin from "./pages/AdminLogin";
 import CoverLetter from "./pages/CoverLetter";
 import Noc from "./pages/Noc";
 import VisaNews from "./pages/VisaNews";
+import BankStatement from "./pages/BankStatement";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/salary-slip" element={<SalarySlip />} />
             <Route path="/cover-letter" element={<CoverLetter />} />
             <Route path="/noc" element={<Noc />} />
+            <Route path="/bank-statement" element={<BankStatement />} />
             <Route path="/itineraries" element={<Itineraries />} />
             <Route path="/events" element={<Events />} />
             <Route path="/visa-news" element={<VisaNews />} />
