@@ -27,8 +27,15 @@ export interface AnalysisResults {
 
 type ParsedTransaction = Transaction & {
   sourceIndex: number;
-  amountCandidates: { val: number; suffix?: string; idx: number; raw: string }[];
+  amountCandidates: MoneyToken[];
+  rawText: string;
 };
+
+type MoneyToken = { val: number; suffix?: string; idx: number; raw: string; x?: number };
+type TextRow = { page: number; y: number; text: string; items: { x: number; str: string }[] };
+
+const DATE_RE = /(\b\d{1,2}[\/\-\s](?:\d{1,2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\/\-\s]\d{2,4}\b)/i;
+const DATE_RE_GLOBAL = new RegExp(DATE_RE.source, 'gi');
 
 /** Real on-device PDF parser for Indian bank statements (SBI/HDFC/ICICI/Axis/Kotak etc). */
 export async function extractTransactionsFromPDF(file: File): Promise<Transaction[]> {
@@ -38,7 +45,7 @@ export async function extractTransactionsFromPDF(file: File): Promise<Transactio
 
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  const lines: string[] = [];
+  const rowsByPage: TextRow[] = [];
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
@@ -57,59 +64,232 @@ export async function extractTransactionsFromPDF(file: File): Promise<Transactio
     rows
       .sort((a, b) => b.y - a.y)
       .forEach((row) => {
-        const line = row.items
+        const orderedItems = row.items.sort((a, b) => a.x - b.x);
+        const line = orderedItems
           .sort((a, b) => a.x - b.x)
           .map((s) => s.str)
           .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
-        if (line) lines.push(line);
+        if (line) rowsByPage.push({ page: p, y: row.y, text: line, items: orderedItems });
       });
   }
 
-  return parseTransactionLines(lines);
+  return parseRows(rowsByPage);
 }
 
 /** Parses lines from common Indian bank PDF statements and reconciles debit/credit from balance movement. */
 function parseTransactionLines(lines: string[]): Transaction[] {
-  const parsed: ParsedTransaction[] = [];
-  const dateRe =
-    /(\b\d{1,2}[\/\-\s](?:\d{1,2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\/\-\s]\d{2,4}\b)/i;
+  return finalizeTransactions(buildLogicalRowsFromLines(lines));
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const current = normalizeLine(lines[i]);
-    const next = lines[i + 1] ? normalizeLine(lines[i + 1]) : '';
-    const line = current.match(dateRe) && countMoney(current) < 2 && !next.match(dateRe)
-      ? `${current} ${next}`
-      : current;
-    const dm = line.match(dateRe);
-    if (!dm) continue;
+function parseRows(rows: TextRow[]): Transaction[] {
+  const logicalRows = buildLogicalRows(rows);
+  const columns = inferColumns(logicalRows);
+  const parsed = logicalRows
+    .map((row, index) => parseLogicalRow(row.text, index, extractMoneyFromRow(row), columns))
+    .filter((txn): txn is ParsedTransaction => Boolean(txn));
 
-    const date = parseDate(dm[1]);
-    if (!date) continue;
+  if (parsed.length > 0) return finalizeTransactions(parsed);
 
-    const nums = extractMoney(line);
-    if (nums.length < 2) continue;
+  return parseTransactionLines(rows.map((row) => row.text));
+}
 
-    const firstNumIdx = nums[0].idx;
-    const afterDateIdx = (dm.index ?? 0) + dm[1].length;
-    let description = line.slice(afterDateIdx, firstNumIdx).trim();
-    description = description.replace(/^[\-\|:\s]+|[\-\|:\s]+$/g, '');
-    if (!description) description = '—';
+function buildLogicalRows(rows: TextRow[]): TextRow[] {
+  const logicalRows: TextRow[] = [];
+  let current: TextRow | null = null;
 
-    const balanceToken = nums[nums.length - 1];
-    parsed.push({
-      date,
-      description,
-      deposit: 0,
-      withdrawal: 0,
-      balance: balanceToken.val,
-      sourceIndex: i,
-      amountCandidates: nums.slice(0, -1).filter((n) => n.val > 0),
-    });
+  for (const row of rows) {
+    const parts = splitByTransactionDate(normalizeLine(row.text));
+    for (const text of parts) {
+    if (!text || isNoiseLine(text)) continue;
+
+    if (DATE_RE.test(text)) {
+      if (current) logicalRows.push(current);
+      current = { ...row, text };
+      continue;
+    }
+
+    if (current && shouldAppendContinuation(text)) {
+      current = {
+        ...current,
+        text: `${current.text} ${text}`.replace(/\s+/g, ' ').trim(),
+        items: [...current.items, ...row.items],
+      };
+    }
+    }
   }
 
-  return reconcileTransactions(parsed).map(({ sourceIndex, amountCandidates, ...txn }) => txn);
+  if (current) logicalRows.push(current);
+  return logicalRows;
+}
+
+function buildLogicalRowsFromLines(lines: string[]): ParsedTransaction[] {
+  const logicalRows: string[] = [];
+  let current = '';
+
+  for (const raw of lines) {
+    const parts = splitByTransactionDate(normalizeLine(raw));
+    for (const text of parts) {
+    if (!text || isNoiseLine(text)) continue;
+
+    if (DATE_RE.test(text)) {
+      if (current) logicalRows.push(current);
+      current = text;
+    } else if (current && shouldAppendContinuation(text)) {
+      current = `${current} ${text}`.replace(/\s+/g, ' ').trim();
+    }
+    }
+  }
+
+  if (current) logicalRows.push(current);
+  return logicalRows
+    .map((line, index) => parseLogicalRow(line, index, extractMoney(line)))
+    .filter((txn): txn is ParsedTransaction => Boolean(txn));
+}
+
+function splitByTransactionDate(line: string) {
+  const matches = Array.from(line.matchAll(DATE_RE_GLOBAL));
+  if (matches.length <= 1) return [line];
+  return matches.map((match, index) => {
+    const start = match.index ?? 0;
+    const end = matches[index + 1]?.index ?? line.length;
+    return line.slice(start, end).trim();
+  });
+}
+
+function parseLogicalRow(
+  line: string,
+  sourceIndex: number,
+  nums: MoneyToken[],
+  columns?: { debitX?: number; creditX?: number; balanceX?: number },
+): ParsedTransaction | null {
+  const dm = line.match(DATE_RE);
+  if (!dm) return null;
+
+  const date = parseDate(dm[1]);
+  if (!date) return null;
+
+  const afterDateIdx = (dm.index ?? 0) + dm[1].length;
+  const relevantNums = nums.filter((n) => n.idx >= afterDateIdx && n.val > 0);
+  if (relevantNums.length < 2) return null;
+
+  const balanceToken = pickBalanceToken(relevantNums, columns?.balanceX);
+  const amountCandidates = relevantNums.filter((n) => n !== balanceToken);
+  if (amountCandidates.length === 0) return null;
+
+  const firstAmountIdx = Math.min(...relevantNums.map((n) => n.idx));
+  let description = line.slice(afterDateIdx, firstAmountIdx).trim();
+  description = description.replace(/^[\-\|:\s]+|[\-\|:\s]+$/g, '');
+  if (!description) description = '—';
+
+  const txn: ParsedTransaction = {
+    date,
+    description,
+    deposit: 0,
+    withdrawal: 0,
+    balance: balanceToken.val,
+    sourceIndex,
+    amountCandidates,
+    rawText: line,
+  };
+
+  applyColumnAmounts(txn, columns);
+  return txn;
+}
+
+function finalizeTransactions(parsed: ParsedTransaction[]): Transaction[] {
+  return reconcileTransactions(parsed)
+    .map(({ sourceIndex, amountCandidates, rawText, ...txn }) => txn)
+    .filter((txn) => txn.deposit > 0 || txn.withdrawal > 0 || txn.balance > 0);
+}
+
+function isNoiseLine(line: string) {
+  return /^(date|txn date|transaction date|particulars|description|narration|remarks|debit|withdrawal|credit|deposit|balance|page\b|statement|account|ifsc|branch|opening balance|closing balance|total\b)/i.test(line)
+    || /generated on|computer generated|end of statement|this is a system generated/i.test(line);
+}
+
+function shouldAppendContinuation(line: string) {
+  return !isNoiseLine(line) && !/^\d+\s*$/.test(line);
+}
+
+function extractMoneyFromRow(row: TextRow): MoneyToken[] {
+  const tokens: MoneyToken[] = [];
+  let offset = 0;
+  for (const item of row.items.sort((a, b) => a.x - b.x)) {
+    const text = normalizeLine(item.str);
+    for (const token of extractMoney(text)) {
+      tokens.push({ ...token, idx: offset + token.idx, x: item.x });
+    }
+    offset += text.length + 1;
+  }
+  return tokens.length >= 2 ? tokens : extractMoney(row.text);
+}
+
+function inferColumns(rows: TextRow[]) {
+  const samples = rows.map((row) => extractMoneyFromRow(row)).filter((nums) => nums.length >= 2);
+  const balanceXs = samples.map((nums) => nums.reduce((right, cur) => ((cur.x ?? 0) > (right.x ?? 0) ? cur : right)).x).filter(isNumber);
+  const balanceX = median(balanceXs);
+  const debitXs: number[] = [];
+  const creditXs: number[] = [];
+  const rough = rows
+    .map((row, index) => parseLogicalRow(row.text, index, extractMoneyFromRow(row), { balanceX }))
+    .filter((txn): txn is ParsedTransaction => Boolean(txn))
+    .sort((a, b) => a.date.getTime() - b.date.getTime() || a.sourceIndex - b.sourceIndex);
+
+  for (let i = 1; i < rough.length; i++) {
+    const delta = roundMoney(rough[i].balance - rough[i - 1].balance);
+    const expected = Math.abs(delta);
+    if (expected <= 0) continue;
+    const candidate = closestAmount(rough[i].amountCandidates, expected);
+    if (!candidate || !isNumber(candidate.x) || Math.abs(candidate.val - expected) > Math.max(1, expected * 0.02)) continue;
+    if (delta > 0) creditXs.push(candidate.x);
+    else debitXs.push(candidate.x);
+  }
+
+  return { debitX: median(debitXs), creditX: median(creditXs), balanceX };
+}
+
+function pickBalanceToken(nums: MoneyToken[], balanceX?: number) {
+  if (isNumber(balanceX)) {
+    return nums.reduce((best, cur) => (
+      Math.abs((cur.x ?? balanceX) - balanceX) < Math.abs((best.x ?? balanceX) - balanceX) ? cur : best
+    ), nums[nums.length - 1]);
+  }
+  return nums.reduce((right, cur) => ((cur.x ?? cur.idx) > (right.x ?? right.idx) ? cur : right), nums[nums.length - 1]);
+}
+
+function applyColumnAmounts(txn: ParsedTransaction, columns?: { debitX?: number; creditX?: number }) {
+  if (!columns) return;
+  const debit = isNumber(columns.debitX) ? nearestByX(txn.amountCandidates, columns.debitX) : undefined;
+  const credit = isNumber(columns.creditX) ? nearestByX(txn.amountCandidates, columns.creditX) : undefined;
+  if (credit && (!debit || credit !== debit)) txn.deposit = credit.val;
+  else if (debit) txn.withdrawal = debit.val;
+}
+
+function isNumber(n: unknown): n is number {
+  return typeof n === 'number' && Number.isFinite(n);
+}
+
+function median(values: number[]) {
+  const sorted = values.filter(isNumber).sort((a, b) => a - b);
+  if (sorted.length === 0) return undefined;
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function closestAmount(tokens: MoneyToken[], expected: number) {
+  if (tokens.length === 0) return undefined;
+  return tokens.reduce((best, cur) => (
+    Math.abs(cur.val - expected) < Math.abs(best.val - expected) ? cur : best
+  ), tokens[0]);
+}
+
+function nearestByX(tokens: MoneyToken[], x: number) {
+  const positioned = tokens.filter((token) => isNumber(token.x));
+  if (positioned.length === 0) return undefined;
+  return positioned.reduce((best, cur) => (
+    Math.abs((cur.x ?? x) - x) < Math.abs((best.x ?? x) - x) ? cur : best
+  ), positioned[0]);
 }
 
 function normalizeLine(s: string) {
@@ -122,7 +302,7 @@ function normalizeLine(s: string) {
 }
 
 function extractMoney(line: string) {
-  const moneyRe = /([+-]?\(?\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?\)?|[+-]?\(?\d+\.\d{1,2}\)?)(?:\s*(Dr|Cr|dr|cr))?/g;
+  const moneyRe = /([+-]?\(?\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?\)?|[+-]?\(?\d{3,}(?:\.\d{1,2})?\)?|[+-]?\(?\d+\.\d{1,2}\)?)(?:\s*(Dr|Cr|dr|cr))?/g;
   const nums: { val: number; suffix?: string; idx: number; raw: string }[] = [];
   let m: RegExpExecArray | null;
   moneyRe.lastIndex = 0;
