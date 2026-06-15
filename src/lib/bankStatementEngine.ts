@@ -27,8 +27,15 @@ export interface AnalysisResults {
 
 type ParsedTransaction = Transaction & {
   sourceIndex: number;
-  amountCandidates: { val: number; suffix?: string; idx: number; raw: string }[];
+  amountCandidates: MoneyToken[];
+  rawText: string;
 };
+
+type MoneyToken = { val: number; suffix?: string; idx: number; raw: string; x?: number };
+type TextRow = { page: number; y: number; text: string; items: { x: number; str: string }[] };
+
+const DATE_RE = /(\b\d{1,2}[\/\-\s](?:\d{1,2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\/\-\s]\d{2,4}\b)/i;
+const DATE_RE_GLOBAL = new RegExp(DATE_RE.source, 'gi');
 
 /** Real on-device PDF parser for Indian bank statements (SBI/HDFC/ICICI/Axis/Kotak etc). */
 export async function extractTransactionsFromPDF(file: File): Promise<Transaction[]> {
@@ -38,7 +45,7 @@ export async function extractTransactionsFromPDF(file: File): Promise<Transactio
 
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  const lines: string[] = [];
+  const rowsByPage: TextRow[] = [];
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
@@ -57,59 +64,124 @@ export async function extractTransactionsFromPDF(file: File): Promise<Transactio
     rows
       .sort((a, b) => b.y - a.y)
       .forEach((row) => {
-        const line = row.items
+        const orderedItems = row.items.sort((a, b) => a.x - b.x);
+        const line = orderedItems
           .sort((a, b) => a.x - b.x)
           .map((s) => s.str)
           .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
-        if (line) lines.push(line);
+        if (line) rowsByPage.push({ page: p, y: row.y, text: line, items: orderedItems });
       });
   }
 
-  return parseTransactionLines(lines);
+  return parseRows(rowsByPage);
 }
 
 /** Parses lines from common Indian bank PDF statements and reconciles debit/credit from balance movement. */
 function parseTransactionLines(lines: string[]): Transaction[] {
-  const parsed: ParsedTransaction[] = [];
-  const dateRe =
-    /(\b\d{1,2}[\/\-\s](?:\d{1,2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\/\-\s]\d{2,4}\b)/i;
+  return finalizeTransactions(buildLogicalRowsFromLines(lines));
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const current = normalizeLine(lines[i]);
-    const next = lines[i + 1] ? normalizeLine(lines[i + 1]) : '';
-    const line = current.match(dateRe) && countMoney(current) < 2 && !next.match(dateRe)
-      ? `${current} ${next}`
-      : current;
-    const dm = line.match(dateRe);
-    if (!dm) continue;
+function parseRows(rows: TextRow[]): Transaction[] {
+  const logicalRows = buildLogicalRows(rows);
+  const columns = inferColumns(logicalRows);
+  const parsed = logicalRows
+    .map((row, index) => parseLogicalRow(row.text, index, extractMoneyFromRow(row), columns))
+    .filter((txn): txn is ParsedTransaction => Boolean(txn));
 
-    const date = parseDate(dm[1]);
-    if (!date) continue;
+  if (parsed.length > 0) return finalizeTransactions(parsed);
 
-    const nums = extractMoney(line);
-    if (nums.length < 2) continue;
+  return parseTransactionLines(rows.map((row) => row.text));
+}
 
-    const firstNumIdx = nums[0].idx;
-    const afterDateIdx = (dm.index ?? 0) + dm[1].length;
-    let description = line.slice(afterDateIdx, firstNumIdx).trim();
-    description = description.replace(/^[\-\|:\s]+|[\-\|:\s]+$/g, '');
-    if (!description) description = '—';
+function buildLogicalRows(rows: TextRow[]): TextRow[] {
+  const logicalRows: TextRow[] = [];
+  let current: TextRow | null = null;
 
-    const balanceToken = nums[nums.length - 1];
-    parsed.push({
-      date,
-      description,
-      deposit: 0,
-      withdrawal: 0,
-      balance: balanceToken.val,
-      sourceIndex: i,
-      amountCandidates: nums.slice(0, -1).filter((n) => n.val > 0),
-    });
+  for (const row of rows) {
+    const text = normalizeLine(row.text);
+    if (!text || isNoiseLine(text)) continue;
+
+    if (DATE_RE.test(text)) {
+      if (current) logicalRows.push(current);
+      current = { ...row, text };
+      continue;
+    }
+
+    if (current && shouldAppendContinuation(text)) {
+      current = {
+        ...current,
+        text: `${current.text} ${text}`.replace(/\s+/g, ' ').trim(),
+        items: [...current.items, ...row.items],
+      };
+    }
   }
 
-  return reconcileTransactions(parsed).map(({ sourceIndex, amountCandidates, ...txn }) => txn);
+  if (current) logicalRows.push(current);
+  return logicalRows;
+}
+
+function buildLogicalRowsFromLines(lines: string[]): ParsedTransaction[] {
+  const logicalRows: string[] = [];
+  let current = '';
+
+  for (const raw of lines) {
+    const text = normalizeLine(raw);
+    if (!text || isNoiseLine(text)) continue;
+
+    if (DATE_RE.test(text)) {
+      if (current) logicalRows.push(current);
+      current = text;
+    } else if (current && shouldAppendContinuation(text)) {
+      current = `${current} ${text}`.replace(/\s+/g, ' ').trim();
+    }
+  }
+
+  if (current) logicalRows.push(current);
+  return logicalRows
+    .map((line, index) => parseLogicalRow(line, index, extractMoney(line)))
+    .filter((txn): txn is ParsedTransaction => Boolean(txn));
+}
+
+function parseLogicalRow(
+  line: string,
+  sourceIndex: number,
+  nums: MoneyToken[],
+  columns?: { debitX?: number; creditX?: number; balanceX?: number },
+): ParsedTransaction | null {
+  const dm = line.match(DATE_RE);
+  if (!dm) return null;
+
+  const date = parseDate(dm[1]);
+  if (!date) return null;
+
+  const afterDateIdx = (dm.index ?? 0) + dm[1].length;
+  const relevantNums = nums.filter((n) => n.idx >= afterDateIdx && n.val > 0);
+  if (relevantNums.length < 2) return null;
+
+  const balanceToken = pickBalanceToken(relevantNums, columns?.balanceX);
+  const amountCandidates = relevantNums.filter((n) => n !== balanceToken);
+  if (amountCandidates.length === 0) return null;
+
+  const firstAmountIdx = Math.min(...relevantNums.map((n) => n.idx));
+  let description = line.slice(afterDateIdx, firstAmountIdx).trim();
+  description = description.replace(/^[\-\|:\s]+|[\-\|:\s]+$/g, '');
+  if (!description) description = '—';
+
+  const txn: ParsedTransaction = {
+    date,
+    description,
+    deposit: 0,
+    withdrawal: 0,
+    balance: balanceToken.val,
+    sourceIndex,
+    amountCandidates,
+    rawText: line,
+  };
+
+  applyColumnAmounts(txn, columns);
+  return txn;
 }
 
 function normalizeLine(s: string) {
