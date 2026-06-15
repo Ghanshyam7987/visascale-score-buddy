@@ -25,110 +25,169 @@ export interface AnalysisResults {
   ruleD: RuleResult & { avgRetentionPct: number };
 }
 
+type ParsedTransaction = Transaction & {
+  sourceIndex: number;
+  amountCandidates: { val: number; suffix?: string; idx: number; raw: string }[];
+};
+
 /** Real on-device PDF parser for Indian bank statements (SBI/HDFC/ICICI/Axis/Kotak etc). */
 export async function extractTransactionsFromPDF(file: File): Promise<Transaction[]> {
-  // Lazy-load pdfjs (main entry resolves to build/pdf.mjs)
   const pdfjsLib: any = await import('pdfjs-dist');
-  // Load the worker as a Vite URL so it's bundled & served by the dev server
   const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
   pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
-  // Build line-grouped text per page using y-coordinates
   const lines: string[] = [];
+
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
-    const rows = new Map<number, { x: number; str: string }[]>();
+    const rows: { y: number; items: { x: number; str: string }[] }[] = [];
+
     for (const item of content.items as any[]) {
-      if (!item.str || !item.transform) continue;
-      const y = Math.round(item.transform[5]);
-      if (!rows.has(y)) rows.set(y, []);
-      rows.get(y)!.push({ x: item.transform[4], str: item.str });
+      if (!item.str?.trim() || !item.transform) continue;
+      const y = item.transform[5];
+      const existing = rows.find((row) => Math.abs(row.y - y) <= 2);
+      const target = existing || { y, items: [] };
+      target.items.push({ x: item.transform[4], str: item.str });
+      if (!existing) rows.push(target);
     }
-    const sortedYs = Array.from(rows.keys()).sort((a, b) => b - a);
-    for (const y of sortedYs) {
-      const line = rows.get(y)!
-        .sort((a, b) => a.x - b.x)
-        .map((s) => s.str)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (line) lines.push(line);
-    }
+
+    rows
+      .sort((a, b) => b.y - a.y)
+      .forEach((row) => {
+        const line = row.items
+          .sort((a, b) => a.x - b.x)
+          .map((s) => s.str)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (line) lines.push(line);
+      });
   }
 
   return parseTransactionLines(lines);
 }
 
-/** Parses lines from any common Indian bank statement format. */
+/** Parses lines from common Indian bank PDF statements and reconciles debit/credit from balance movement. */
 function parseTransactionLines(lines: string[]): Transaction[] {
-  const txns: Transaction[] = [];
-  // Date formats: 01/04/2024, 01-04-2024, 01 Apr 2024, 01-Apr-2024, 01-Apr-24
+  const parsed: ParsedTransaction[] = [];
   const dateRe =
     /(\b\d{1,2}[\/\-\s](?:\d{1,2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\/\-\s]\d{2,4}\b)/i;
-  // Number with optional commas and decimals, optional Dr/Cr suffix
-  const numRe = /([\d,]+\.\d{2})(?:\s*(Dr|Cr))?/gi;
 
-  for (const raw of lines) {
-    const line = raw.replace(/\u00a0/g, ' ').trim();
+  for (let i = 0; i < lines.length; i++) {
+    const current = normalizeLine(lines[i]);
+    const next = lines[i + 1] ? normalizeLine(lines[i + 1]) : '';
+    const line = current.match(dateRe) && countMoney(current) < 2 && !next.match(dateRe)
+      ? `${current} ${next}`
+      : current;
     const dm = line.match(dateRe);
     if (!dm) continue;
+
     const date = parseDate(dm[1]);
     if (!date) continue;
 
-    // Extract all monetary numbers
-    const nums: { val: number; suffix?: string; idx: number }[] = [];
-    let m: RegExpExecArray | null;
-    numRe.lastIndex = 0;
-    while ((m = numRe.exec(line)) !== null) {
-      nums.push({ val: parseFloat(m[1].replace(/,/g, '')), suffix: m[2], idx: m.index });
-    }
-    if (nums.length < 2) continue; // need at least amount + balance
+    const nums = extractMoney(line);
+    if (nums.length < 2) continue;
 
-    // Description = between date and first number
     const firstNumIdx = nums[0].idx;
     const afterDateIdx = (dm.index ?? 0) + dm[1].length;
     let description = line.slice(afterDateIdx, firstNumIdx).trim();
-    description = description.replace(/^[\-\|\s]+|[\-\|\s]+$/g, '');
+    description = description.replace(/^[\-\|:\s]+|[\-\|:\s]+$/g, '');
     if (!description) description = '—';
 
-    // Last number = balance. Previous numbers = amount(s).
-    const balance = nums[nums.length - 1].val;
-    let deposit = 0;
-    let withdrawal = 0;
+    const balanceToken = nums[nums.length - 1];
+    parsed.push({
+      date,
+      description,
+      deposit: 0,
+      withdrawal: 0,
+      balance: balanceToken.val,
+      sourceIndex: i,
+      amountCandidates: nums.slice(0, -1).filter((n) => n.val > 0),
+    });
+  }
 
-    if (nums.length >= 3) {
-      // [withdrawal, deposit, balance] OR [deposit, withdrawal, balance] — Indian statements vary.
-      // Most common: Withdrawal | Deposit | Balance. A zero/blank column shows as missing.
-      // Since we matched only non-zero amounts, treat: if 3 nums → first=wd, second=dep
-      withdrawal = nums[0].val;
-      deposit = nums[1].val;
-    } else {
-      // 2 numbers: amount + balance. Use Dr/Cr suffix, or infer from previous balance.
-      const amt = nums[0];
-      if (amt.suffix?.toLowerCase() === 'cr') {
-        deposit = amt.val;
-      } else if (amt.suffix?.toLowerCase() === 'dr') {
-        withdrawal = amt.val;
-      } else if (txns.length > 0) {
-        const prevBal = txns[txns.length - 1].balance;
-        if (balance > prevBal) deposit = amt.val;
-        else withdrawal = amt.val;
-      } else {
-        // First row, no signal — assume withdrawal
-        withdrawal = amt.val;
+  return reconcileTransactions(parsed).map(({ sourceIndex, amountCandidates, ...txn }) => txn);
+}
+
+function normalizeLine(s: string) {
+  return s
+    .replace(/\u00a0/g, ' ')
+    .replace(/[₹]/g, '')
+    .replace(/\b(CR|DR)\b/g, (m) => m.toLowerCase())
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractMoney(line: string) {
+  const moneyRe = /([+-]?\(?\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?\)?|[+-]?\(?\d+\.\d{1,2}\)?)(?:\s*(Dr|Cr|dr|cr))?/g;
+  const nums: { val: number; suffix?: string; idx: number; raw: string }[] = [];
+  let m: RegExpExecArray | null;
+  moneyRe.lastIndex = 0;
+
+  while ((m = moneyRe.exec(line)) !== null) {
+    const raw = m[1];
+    const negative = raw.startsWith('-') || (raw.startsWith('(') && raw.endsWith(')'));
+    const val = Math.abs(parseFloat(raw.replace(/[(),+]/g, '')));
+    if (!Number.isFinite(val)) continue;
+    nums.push({ val, suffix: negative ? 'Dr' : m[2], idx: m.index, raw: m[0] });
+  }
+
+  return nums;
+}
+
+function countMoney(line: string) {
+  return extractMoney(line).length;
+}
+
+function reconcileTransactions(txns: ParsedTransaction[]): ParsedTransaction[] {
+  if (txns.length === 0) return [];
+  const originalDescending = txns.length > 1 && txns[0].date.getTime() > txns[txns.length - 1].date.getTime();
+  const sorted = [...txns].sort((a, b) => {
+    const byDate = a.date.getTime() - b.date.getTime();
+    if (byDate !== 0) return byDate;
+    return originalDescending ? b.sourceIndex - a.sourceIndex : a.sourceIndex - b.sourceIndex;
+  });
+
+  for (let i = 0; i < sorted.length; i++) {
+    const txn = sorted[i];
+    const bySuffix = txn.amountCandidates.find((n) => n.suffix?.toLowerCase() === 'cr')
+      || txn.amountCandidates.find((n) => n.suffix?.toLowerCase() === 'dr');
+
+    if (bySuffix) {
+      if (bySuffix.suffix?.toLowerCase() === 'cr') txn.deposit = bySuffix.val;
+      else txn.withdrawal = bySuffix.val;
+      continue;
+    }
+
+    if (i > 0 && txn.amountCandidates.length > 0) {
+      const delta = roundMoney(txn.balance - sorted[i - 1].balance);
+      const expected = Math.abs(delta);
+      const candidate = txn.amountCandidates.reduce((best, cur) => (
+        Math.abs(cur.val - expected) < Math.abs(best.val - expected) ? cur : best
+      ), txn.amountCandidates[0]);
+      const tolerance = Math.max(1, expected * 0.02);
+
+      if (expected > 0 && Math.abs(candidate.val - expected) <= tolerance) {
+        if (delta > 0) txn.deposit = candidate.val;
+        else txn.withdrawal = candidate.val;
+        continue;
       }
     }
 
-    txns.push({ date, description, deposit, withdrawal, balance });
+    const fallback = txn.amountCandidates.find((n) => n.val > 0);
+    if (!fallback) continue;
+    if (/salary|refund|interest|cash\s*dep|deposit|credit|by\s+/i.test(txn.description)) txn.deposit = fallback.val;
+    else txn.withdrawal = fallback.val;
   }
 
-  // Sort chronologically
-  txns.sort((a, b) => a.date.getTime() - b.date.getTime());
-  return txns;
+  return sorted;
+}
+
+function roundMoney(n: number) {
+  return Math.round(n * 100) / 100;
 }
 
 function parseDate(s: string): Date | null {
