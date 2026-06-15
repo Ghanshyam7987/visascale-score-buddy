@@ -302,7 +302,7 @@ function normalizeLine(s: string) {
 }
 
 function extractMoney(line: string) {
-  const moneyRe = /([+-]?\(?\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?\)?|[+-]?\(?\d+\.\d{1,2}\)?)(?:\s*(Dr|Cr|dr|cr))?/g;
+  const moneyRe = /([+-]?\(?\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?\)?|[+-]?\(?\d{3,}(?:\.\d{1,2})?\)?|[+-]?\(?\d+\.\d{1,2}\)?)(?:\s*(Dr|Cr|dr|cr))?/g;
   const nums: { val: number; suffix?: string; idx: number; raw: string }[] = [];
   let m: RegExpExecArray | null;
   moneyRe.lastIndex = 0;
