@@ -100,7 +100,8 @@ function buildLogicalRows(rows: TextRow[]): TextRow[] {
   let current: TextRow | null = null;
 
   for (const row of rows) {
-    const text = normalizeLine(row.text);
+    const parts = splitByTransactionDate(normalizeLine(row.text));
+    for (const text of parts) {
     if (!text || isNoiseLine(text)) continue;
 
     if (DATE_RE.test(text)) {
@@ -116,6 +117,7 @@ function buildLogicalRows(rows: TextRow[]): TextRow[] {
         items: [...current.items, ...row.items],
       };
     }
+    }
   }
 
   if (current) logicalRows.push(current);
@@ -127,7 +129,8 @@ function buildLogicalRowsFromLines(lines: string[]): ParsedTransaction[] {
   let current = '';
 
   for (const raw of lines) {
-    const text = normalizeLine(raw);
+    const parts = splitByTransactionDate(normalizeLine(raw));
+    for (const text of parts) {
     if (!text || isNoiseLine(text)) continue;
 
     if (DATE_RE.test(text)) {
@@ -136,12 +139,23 @@ function buildLogicalRowsFromLines(lines: string[]): ParsedTransaction[] {
     } else if (current && shouldAppendContinuation(text)) {
       current = `${current} ${text}`.replace(/\s+/g, ' ').trim();
     }
+    }
   }
 
   if (current) logicalRows.push(current);
   return logicalRows
     .map((line, index) => parseLogicalRow(line, index, extractMoney(line)))
     .filter((txn): txn is ParsedTransaction => Boolean(txn));
+}
+
+function splitByTransactionDate(line: string) {
+  const matches = Array.from(line.matchAll(DATE_RE_GLOBAL));
+  if (matches.length <= 1) return [line];
+  return matches.map((match, index) => {
+    const start = match.index ?? 0;
+    const end = matches[index + 1]?.index ?? line.length;
+    return line.slice(start, end).trim();
+  });
 }
 
 function parseLogicalRow(
