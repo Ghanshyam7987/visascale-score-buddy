@@ -253,6 +253,31 @@ function applyColumnAmounts(txn: ParsedTransaction, columns?: { debitX?: number;
   else if (debit) txn.withdrawal = debit.val;
 }
 
+function isNumber(n: unknown): n is number {
+  return typeof n === 'number' && Number.isFinite(n);
+}
+
+function median(values: number[]) {
+  const sorted = values.filter(isNumber).sort((a, b) => a - b);
+  if (sorted.length === 0) return undefined;
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function closestAmount(tokens: MoneyToken[], expected: number) {
+  if (tokens.length === 0) return undefined;
+  return tokens.reduce((best, cur) => (
+    Math.abs(cur.val - expected) < Math.abs(best.val - expected) ? cur : best
+  ), tokens[0]);
+}
+
+function nearestByX(tokens: MoneyToken[], x: number) {
+  const positioned = tokens.filter((token) => isNumber(token.x));
+  if (positioned.length === 0) return undefined;
+  return positioned.reduce((best, cur) => (
+    Math.abs((cur.x ?? x) - x) < Math.abs((best.x ?? x) - x) ? cur : best
+  ), positioned[0]);
+}
+
 function normalizeLine(s: string) {
   return s
     .replace(/\u00a0/g, ' ')
