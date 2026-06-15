@@ -184,6 +184,75 @@ function parseLogicalRow(
   return txn;
 }
 
+function finalizeTransactions(parsed: ParsedTransaction[]): Transaction[] {
+  return reconcileTransactions(parsed)
+    .map(({ sourceIndex, amountCandidates, rawText, ...txn }) => txn)
+    .filter((txn) => txn.deposit > 0 || txn.withdrawal > 0 || txn.balance > 0);
+}
+
+function isNoiseLine(line: string) {
+  return /^(date|txn date|transaction date|particulars|description|narration|remarks|debit|withdrawal|credit|deposit|balance|page\b|statement|account|ifsc|branch|opening balance|closing balance|total\b)/i.test(line)
+    || /generated on|computer generated|end of statement|this is a system generated/i.test(line);
+}
+
+function shouldAppendContinuation(line: string) {
+  return !isNoiseLine(line) && !/^\d+\s*$/.test(line);
+}
+
+function extractMoneyFromRow(row: TextRow): MoneyToken[] {
+  const tokens: MoneyToken[] = [];
+  let offset = 0;
+  for (const item of row.items.sort((a, b) => a.x - b.x)) {
+    const text = normalizeLine(item.str);
+    for (const token of extractMoney(text)) {
+      tokens.push({ ...token, idx: offset + token.idx, x: item.x });
+    }
+    offset += text.length + 1;
+  }
+  return tokens.length >= 2 ? tokens : extractMoney(row.text);
+}
+
+function inferColumns(rows: TextRow[]) {
+  const samples = rows.map((row) => extractMoneyFromRow(row)).filter((nums) => nums.length >= 2);
+  const balanceXs = samples.map((nums) => nums.reduce((right, cur) => ((cur.x ?? 0) > (right.x ?? 0) ? cur : right)).x).filter(isNumber);
+  const balanceX = median(balanceXs);
+  const debitXs: number[] = [];
+  const creditXs: number[] = [];
+  const rough = rows
+    .map((row, index) => parseLogicalRow(row.text, index, extractMoneyFromRow(row), { balanceX }))
+    .filter((txn): txn is ParsedTransaction => Boolean(txn))
+    .sort((a, b) => a.date.getTime() - b.date.getTime() || a.sourceIndex - b.sourceIndex);
+
+  for (let i = 1; i < rough.length; i++) {
+    const delta = roundMoney(rough[i].balance - rough[i - 1].balance);
+    const expected = Math.abs(delta);
+    if (expected <= 0) continue;
+    const candidate = closestAmount(rough[i].amountCandidates, expected);
+    if (!candidate || !isNumber(candidate.x) || Math.abs(candidate.val - expected) > Math.max(1, expected * 0.02)) continue;
+    if (delta > 0) creditXs.push(candidate.x);
+    else debitXs.push(candidate.x);
+  }
+
+  return { debitX: median(debitXs), creditX: median(creditXs), balanceX };
+}
+
+function pickBalanceToken(nums: MoneyToken[], balanceX?: number) {
+  if (isNumber(balanceX)) {
+    return nums.reduce((best, cur) => (
+      Math.abs((cur.x ?? balanceX) - balanceX) < Math.abs((best.x ?? balanceX) - balanceX) ? cur : best
+    ), nums[nums.length - 1]);
+  }
+  return nums.reduce((right, cur) => ((cur.x ?? cur.idx) > (right.x ?? right.idx) ? cur : right), nums[nums.length - 1]);
+}
+
+function applyColumnAmounts(txn: ParsedTransaction, columns?: { debitX?: number; creditX?: number }) {
+  if (!columns) return;
+  const debit = isNumber(columns.debitX) ? nearestByX(txn.amountCandidates, columns.debitX) : undefined;
+  const credit = isNumber(columns.creditX) ? nearestByX(txn.amountCandidates, columns.creditX) : undefined;
+  if (credit && (!debit || credit !== debit)) txn.deposit = credit.val;
+  else if (debit) txn.withdrawal = debit.val;
+}
+
 function normalizeLine(s: string) {
   return s
     .replace(/\u00a0/g, ' ')
