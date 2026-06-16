@@ -135,10 +135,8 @@ export function runVORules(
   }
   if (incomeProfile === 'irregular') {
     // Business profile: 5+ deposit transactions per month consistently
-    const monthlyCreditCount = Array.from(byMonth.values()).map(m =>
-      txns.filter(t => monthKey(t.date) === monthKey(txns.find(x => true)!.date) && t.deposit > 0).length,
-    );
-    const businessMonths = Array.from(byMonth.entries()).filter(([k]) =>
+    const monthKeys = Array.from(byMonth.keys());
+    const businessMonths = monthKeys.filter(k =>
       txns.filter(t => monthKey(t.date) === k && t.deposit > 0).length >= 5,
     ).length;
     if (businessMonths / Math.max(monthsCovered, 1) >= 0.6) incomeProfile = 'business';
