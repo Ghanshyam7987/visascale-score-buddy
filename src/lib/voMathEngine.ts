@@ -28,6 +28,7 @@ export interface VOResult {
   totalWithdrawals: number;
   debitsPerMonth: number;
   hasEconomicTies: boolean;
+  economicTiesKeywords: string[];
   incomeProfile: 'salaried' | 'business' | 'irregular';
 }
 
