@@ -46,7 +46,7 @@ export function runVORules(
       avgMonthlyInflow: 0, avgMonthlyOutflow: 0, avgBalance: 0, monthsCovered: 0,
       largestDeposit: { amount: 0, date: null, description: '' },
       totalDeposits: 0, totalWithdrawals: 0, debitsPerMonth: 0,
-      hasEconomicTies: false, incomeProfile: 'irregular',
+      hasEconomicTies: false, economicTiesKeywords: [], incomeProfile: 'irregular',
     };
   }
 
