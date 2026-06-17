@@ -19,9 +19,10 @@ const VALID_MIME = [
 
 interface Props {
   onComplete: (result: VOResult, fileName: string) => void;
+  employmentType?: string;
 }
 
-export function BankAnalyzerStep({ onComplete }: Props) {
+export function BankAnalyzerStep({ onComplete, employmentType = 'Salaried' }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function BankAnalyzerStep({ onComplete }: Props) {
         }
       }
       if (!txns.length) throw lastErr || new Error('No transactions detected in this workbook.');
-      const vo = runVORules(txns, Number(tripCost) || 0);
+      const vo = runVORules(txns, Number(tripCost) || 0, employmentType);
       setResult(vo);
       onComplete(vo, file.name);
     } catch (e: any) {
@@ -70,7 +71,7 @@ export function BankAnalyzerStep({ onComplete }: Props) {
     } finally {
       setParsing(false);
     }
-  }, [tripCost, onComplete]);
+  }, [tripCost, onComplete, employmentType]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
