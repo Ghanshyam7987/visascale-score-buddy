@@ -87,7 +87,7 @@ export function runVORules(
   }
 
   // Rule 2 — Economic Ties
-  const tiesRegex = /EMI|SIP|Mutual Fund|LIC|Insurance|PPF|Loan/i;
+  const tiesRegex = /\b(EMI|SIP|Mutual Fund|LIC|Insurance|PPF|Loan)\b/i;
   const hasEconomicTies = txns.some(t => t.withdrawal > 0 && tiesRegex.test(t.description));
   if (hasEconomicTies) {
     flags.push({
