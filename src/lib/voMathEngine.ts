@@ -36,6 +36,7 @@ const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).pad
 export function runVORules(
   txns: RawTxn[],
   estimatedTripCost: number,
+  employmentType: string = 'Salaried',
 ): VOResult {
   const flags: VOFlag[] = [];
   if (!txns.length) {
@@ -125,28 +126,53 @@ export function runVORules(
   }
 
   // Rule 5 — Income / Cashflow Validator
-  // Salaried = a recurring deposit (within 15% band) appearing in most months.
   let incomeProfile: VOResult['incomeProfile'] = 'irregular';
-  const monthlyDeposits = Array.from(byMonth.values()).map(m => m.in).filter(v => v > 0);
-  if (monthlyDeposits.length >= 3) {
-    const meanIn = monthlyDeposits.reduce((s, v) => s + v, 0) / monthlyDeposits.length;
-    const within = monthlyDeposits.filter(v => Math.abs(v - meanIn) / meanIn <= 0.25).length;
-    if (within / monthlyDeposits.length >= 0.7) incomeProfile = 'salaried';
-  }
-  if (incomeProfile === 'irregular') {
-    // Business profile: 5+ deposit transactions per month consistently
-    const monthKeys = Array.from(byMonth.keys());
-    const businessMonths = monthKeys.filter(k =>
-      txns.filter(t => monthKey(t.date) === k && t.deposit > 0).length >= 5,
-    ).length;
-    if (businessMonths / Math.max(monthsCovered, 1) >= 0.6) incomeProfile = 'business';
-  }
-  if (incomeProfile === 'salaried') {
-    flags.push({ id: 'income-salaried', level: 'green', title: 'Consistent Salary Pattern Detected', detail: 'Regular monthly credits of similar amount strongly support salaried income claims.' });
-  } else if (incomeProfile === 'business') {
-    flags.push({ id: 'income-business', level: 'green', title: 'Active Business Cashflow Detected', detail: 'Multiple recurring monthly credits indicate genuine business turnover.' });
+  const isBusiness = /self.?business|self.?employed|business/i.test(employmentType);
+
+  if (isBusiness) {
+    // Business logic: healthy txn volume + healthy inflow
+    const txnsPerMonthOk = (debitsPerMonth >= 5) ||
+      (months.reduce((s, m) => s + m.debits, 0) + months.reduce((s, m) => s + (m.in > 0 ? 1 : 0), 0)) / Math.max(monthsCovered, 1) >= 5;
+    const inflowOk = avgMonthlyInflow >= 50000;
+    if (txnsPerMonthOk && inflowOk) {
+      incomeProfile = 'business';
+      flags.push({
+        id: 'income-business',
+        level: 'green',
+        title: 'Healthy Business Cashflow Detected',
+        detail: 'Consistent transaction volume and healthy monthly inflow strongly support your business profile.',
+      });
+    } else {
+      flags.push({
+        id: 'income-business-weak',
+        level: 'yellow',
+        title: 'Weak Business Cashflow Pattern',
+        detail: `Avg monthly inflow ₹${Math.round(avgMonthlyInflow).toLocaleString('en-IN')} with ${debitsPerMonth.toFixed(1)} debits/month. Visa officers expect steady turnover for self-employed applicants — attach GST returns or firm bank statements.`,
+      });
+    }
   } else {
-    flags.push({ id: 'income-irregular', level: 'yellow', title: 'Irregular Income Pattern', detail: 'No clear salaried or business cashflow pattern detected. Add a supporting income letter or ITR.' });
+    // Salaried logic: recurring deposit (within band) appearing in most months
+    const monthlyDeposits = Array.from(byMonth.values()).map(m => m.in).filter(v => v > 0);
+    if (monthlyDeposits.length >= 3) {
+      const meanIn = monthlyDeposits.reduce((s, v) => s + v, 0) / monthlyDeposits.length;
+      const within = monthlyDeposits.filter(v => Math.abs(v - meanIn) / meanIn <= 0.25).length;
+      if (within / monthlyDeposits.length >= 0.7) incomeProfile = 'salaried';
+    }
+    if (incomeProfile === 'salaried') {
+      flags.push({
+        id: 'income-salaried',
+        level: 'green',
+        title: 'Consistent Salary Pattern Detected',
+        detail: 'Regular monthly credits of similar amount strongly support salaried income claims.',
+      });
+    } else {
+      flags.push({
+        id: 'income-irregular',
+        level: 'yellow',
+        title: 'Irregular Salary Pattern',
+        detail: 'No clear recurring monthly salary credits detected. Add a salary slip or employer letter to support your claim.',
+      });
+    }
   }
 
   return {
