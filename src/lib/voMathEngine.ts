@@ -198,7 +198,7 @@ export function runVORules(
     flags,
     avgMonthlyInflow, avgMonthlyOutflow, avgBalance, monthsCovered,
     largestDeposit, totalDeposits: totalIn, totalWithdrawals: totalOut,
-    debitsPerMonth, hasEconomicTies, incomeProfile,
+    debitsPerMonth, hasEconomicTies, economicTiesKeywords, incomeProfile,
   };
 }
 
