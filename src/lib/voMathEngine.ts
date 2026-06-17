@@ -88,14 +88,32 @@ export function runVORules(
   }
 
   // Rule 2 — Economic Ties
-  const tiesRegex = /\b(EMI|SIP|Mutual Fund|LIC|Insurance|PPF|Loan)\b/i;
-  const hasEconomicTies = txns.some(t => t.withdrawal > 0 && tiesRegex.test(t.description));
+  const tiesRegex = /\b(EMI|SIP|Mutual Fund|LIC|Insurance|PPF|Loan)\b/ig;
+  const rawMatches: string[] = [];
+  for (const t of txns) {
+    if (t.withdrawal <= 0) continue;
+    let m: RegExpExecArray | null;
+    while ((m = tiesRegex.exec(t.description)) !== null) {
+      rawMatches.push(m[1]);
+    }
+  }
+  // Deduplicate + normalize capitalization
+  const canonicalMap: Record<string, string> = {
+    emi: 'EMI', sip: 'SIP', 'mutual fund': 'Mutual Fund', lic: 'LIC',
+    insurance: 'Insurance', ppf: 'PPF', loan: 'Loan',
+  };
+  const economicTiesKeywords = Array.from(
+    new Set(rawMatches.map(w => canonicalMap[w.toLowerCase()] || w))
+  );
+  const hasEconomicTies = economicTiesKeywords.length > 0;
+
   if (hasEconomicTies) {
+    const joined = economicTiesKeywords.join(', ');
     flags.push({
       id: 'economic-ties',
       level: 'green',
       title: 'Strong Economic Ties to India',
-      detail: 'Recurring commitments (EMI / SIP / Insurance / Loan) found. This signals strong intent to return home.',
+      detail: `Recurring commitments (${joined}) found. This signals strong intent to return home.`,
     });
   } else {
     flags.push({
