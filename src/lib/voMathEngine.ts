@@ -30,7 +30,10 @@ export interface VOResult {
   hasEconomicTies: boolean;
   economicTiesKeywords: string[];
   incomeProfile: 'salaried' | 'business' | 'irregular';
+  accountType: AccountType;
 }
+
+export type AccountType = 'personal' | 'company' | 'sponsor';
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
@@ -38,6 +41,7 @@ export function runVORules(
   txns: RawTxn[],
   estimatedTripCost: number,
   employmentType: string = 'Salaried',
+  accountType: AccountType = 'personal',
 ): VOResult {
   const flags: VOFlag[] = [];
   if (!txns.length) {
@@ -47,6 +51,7 @@ export function runVORules(
       largestDeposit: { amount: 0, date: null, description: '' },
       totalDeposits: 0, totalWithdrawals: 0, debitsPerMonth: 0,
       hasEconomicTies: false, economicTiesKeywords: [], incomeProfile: 'irregular',
+      accountType,
     };
   }
 
@@ -87,17 +92,18 @@ export function runVORules(
     });
   }
 
-  // Rule 2 — Economic Ties
+  // Rule 2 — Economic Ties (skip entirely for Company / Current account)
   const tiesRegex = /\b(EMI|SIP|Mutual Fund|LIC|Insurance|PPF|Loan)\b/ig;
   const rawMatches: string[] = [];
-  for (const t of txns) {
-    if (t.withdrawal <= 0) continue;
-    let m: RegExpExecArray | null;
-    while ((m = tiesRegex.exec(t.description)) !== null) {
-      rawMatches.push(m[1]);
+  if (accountType !== 'company') {
+    for (const t of txns) {
+      if (t.withdrawal <= 0) continue;
+      let m: RegExpExecArray | null;
+      while ((m = tiesRegex.exec(t.description)) !== null) {
+        rawMatches.push(m[1]);
+      }
     }
   }
-  // Deduplicate + normalize capitalization
   const canonicalMap: Record<string, string> = {
     emi: 'EMI', sip: 'SIP', 'mutual fund': 'Mutual Fund', lic: 'LIC',
     insurance: 'Insurance', ppf: 'PPF', loan: 'Loan',
@@ -107,25 +113,27 @@ export function runVORules(
   );
   const hasEconomicTies = economicTiesKeywords.length > 0;
 
-  if (hasEconomicTies) {
-    const joined = economicTiesKeywords.join(', ');
-    flags.push({
-      id: 'economic-ties',
-      level: 'green',
-      title: 'Strong Economic Ties to India',
-      detail: `Recurring commitments (${joined}) found. This signals strong intent to return home.`,
-    });
-  } else {
-    flags.push({
-      id: 'no-economic-ties',
-      level: 'yellow',
-      title: 'No Recurring Financial Commitments',
-      detail: 'We could not find EMI / SIP / LIC / Insurance / Loan entries. Adding such ties strengthens your return-intent profile.',
-    });
+  if (accountType !== 'company') {
+    if (hasEconomicTies) {
+      const joined = economicTiesKeywords.join(', ');
+      flags.push({
+        id: 'economic-ties',
+        level: 'green',
+        title: 'Strong Economic Ties to India',
+        detail: `Recurring commitments (${joined}) found. This signals strong intent to return home.`,
+      });
+    } else {
+      flags.push({
+        id: 'no-economic-ties',
+        level: 'yellow',
+        title: 'No Recurring Financial Commitments',
+        detail: 'We could not find EMI / SIP / LIC / Insurance / Loan entries. Adding such ties strengthens your return-intent profile.',
+      });
+    }
   }
 
   // Rule 3 — Ghost Account
-  if (debitsPerMonth < 10) {
+  if (accountType !== 'company' && debitsPerMonth < 10) {
     flags.push({
       id: 'ghost-account',
       level: 'yellow',
@@ -135,7 +143,26 @@ export function runVORules(
   }
 
   // Rule 4 — Affordability
-  if (estimatedTripCost > 0 && avgBalance < estimatedTripCost) {
+  if (accountType === 'company') {
+    // Business Liquidity: avg balance > tripCost * 2
+    if (estimatedTripCost > 0) {
+      if (avgBalance >= estimatedTripCost * 2) {
+        flags.push({
+          id: 'business-liquidity',
+          level: 'green',
+          title: 'Strong Business Liquidity',
+          detail: `Average balance ₹${Math.round(avgBalance).toLocaleString('en-IN')} comfortably exceeds 2× the estimated trip cost (₹${Math.round(estimatedTripCost * 2).toLocaleString('en-IN')}).`,
+        });
+      } else {
+        flags.push({
+          id: 'business-liquidity-weak',
+          level: 'yellow',
+          title: 'Limited Business Liquidity',
+          detail: `Average balance ₹${Math.round(avgBalance).toLocaleString('en-IN')} is below 2× the estimated trip cost (₹${Math.round(estimatedTripCost * 2).toLocaleString('en-IN')}). Consider supplementing with FDs or directors' personal funds.`,
+        });
+      }
+    }
+  } else if (estimatedTripCost > 0 && avgBalance < estimatedTripCost) {
     flags.push({
       id: 'affordability',
       level: 'yellow',
@@ -146,12 +173,28 @@ export function runVORules(
 
   // Rule 5 — Income / Cashflow Validator
   let incomeProfile: VOResult['incomeProfile'] = 'irregular';
-  const isBusiness = /self.?business|self.?employed|business/i.test(employmentType);
+  const isBusiness = accountType === 'company' || /self.?business|self.?employed|business/i.test(employmentType);
 
-  if (isBusiness) {
-    // Business logic: healthy txn volume + healthy inflow
-    const txnsPerMonthOk = (debitsPerMonth >= 5) ||
-      (months.reduce((s, m) => s + m.debits, 0) + months.reduce((s, m) => s + (m.in > 0 ? 1 : 0), 0)) / Math.max(monthsCovered, 1) >= 5;
+  if (accountType === 'company') {
+    // Business Operations: high txn volume
+    if (debitsPerMonth > 15 && avgMonthlyInflow > 0) {
+      incomeProfile = 'business';
+      flags.push({
+        id: 'business-operations',
+        level: 'green',
+        title: 'Healthy Business Operations',
+        detail: 'High transaction volume indicates a genuine, active business.',
+      });
+    } else {
+      flags.push({
+        id: 'business-operations-weak',
+        level: 'yellow',
+        title: 'Low Business Activity',
+        detail: `Only ${debitsPerMonth.toFixed(1)} debits/month detected. Visa officers expect 15+ monthly debits on an active company current account — attach GST returns / invoices to support.`,
+      });
+    }
+  } else if (isBusiness) {
+    const txnsPerMonthOk = debitsPerMonth >= 5;
     const inflowOk = avgMonthlyInflow >= 50000;
     if (txnsPerMonthOk && inflowOk) {
       incomeProfile = 'business';
@@ -170,7 +213,6 @@ export function runVORules(
       });
     }
   } else {
-    // Salaried logic: recurring deposit (within band) appearing in most months
     const monthlyDeposits = Array.from(byMonth.values()).map(m => m.in).filter(v => v > 0);
     if (monthlyDeposits.length >= 3) {
       const meanIn = monthlyDeposits.reduce((s, v) => s + v, 0) / monthlyDeposits.length;
@@ -199,6 +241,7 @@ export function runVORules(
     avgMonthlyInflow, avgMonthlyOutflow, avgBalance, monthsCovered,
     largestDeposit, totalDeposits: totalIn, totalWithdrawals: totalOut,
     debitsPerMonth, hasEconomicTies, economicTiesKeywords, incomeProfile,
+    accountType,
   };
 }
 
