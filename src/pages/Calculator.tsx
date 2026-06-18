@@ -10,12 +10,13 @@ import { useVisaCountryConfigs } from '@/hooks/useVisaCountryConfigs';
 import { Loader2 } from 'lucide-react';
 import { BankAnalyzerStep } from '@/components/funnel/BankAnalyzerStep';
 import { CoverLetterStep } from '@/components/funnel/CoverLetterStep';
-import type { VOResult } from '@/lib/voMathEngine';
+import type { VOResult, AccountType } from '@/lib/voMathEngine';
 
 const Calculator = () => {
   const [result, setResult] = useState<{ score: number; category: 'Low' | 'Medium' | 'High'; country: string; suggestions: string[] } | null>(null);
   const [voResult, setVoResult] = useState<VOResult | null>(null);
-  const [employmentType, setEmploymentType] = useState<string>('Salaried');
+  const [employmentType, setEmploymentType] = useState<string>('salaried');
+  const [accountType, setAccountType] = useState<AccountType>('personal');
   const { user } = useAuth();
   const { configs, loading: configsLoading } = useVisaCountryConfigs();
 
@@ -23,13 +24,7 @@ const Calculator = () => {
     const { score, category } = calculateVisaScore(data, configs);
     const suggestions = getApprovalSuggestions(data, score);
 
-    // Map internal employmentType codes to the labels the math engine understands
-    const mapEmployment = (t?: string): string => {
-      if (!t) return 'Salaried';
-      if (/self.?business|self.?employed|business/i.test(t)) return 'Self-Employed / Business';
-      return 'Salaried';
-    };
-    setEmploymentType(mapEmployment(data.employmentType));
+    setEmploymentType(data.employmentType || 'salaried');
 
     // Save to database
     if (user) {
@@ -60,13 +55,17 @@ const Calculator = () => {
         ) : result ? (
           <div className="space-y-10">
             <VisaScoreResult {...result} onReset={() => { setResult(null); setVoResult(null); }} />
-            <BankAnalyzerStep employmentType={employmentType} onComplete={(vo) => setVoResult(vo)} />
+            <BankAnalyzerStep
+              employmentType={employmentType}
+              onComplete={(vo, _f, acc) => { setVoResult(vo); setAccountType(acc); }}
+            />
             {voResult && (
               <CoverLetterStep
                 country={result.country}
                 score={result.score}
                 category={result.category}
                 voResult={voResult}
+                accountType={accountType}
               />
             )}
           </div>

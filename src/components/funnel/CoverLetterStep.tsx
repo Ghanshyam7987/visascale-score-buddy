@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { VOResult } from '@/lib/voMathEngine';
+import type { VOResult, AccountType } from '@/lib/voMathEngine';
 import { PrivacyNote } from './PrivacyNote';
 
 interface Props {
@@ -16,6 +16,7 @@ interface Props {
   score: number;
   category: string;
   voResult: VOResult;
+  accountType?: AccountType;
 }
 
 function buildDraft(opts: {
@@ -24,15 +25,20 @@ function buildDraft(opts: {
   score: number;
   category: string;
   vo: VOResult;
+  accountType: AccountType;
 }) {
-  const { applicantName, country, vo } = opts;
+  const { applicantName, country, vo, accountType } = opts;
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+  const stmtLabel =
+    accountType === 'sponsor' ? "sponsor's bank statement" :
+    accountType === 'company' ? 'company / current account bank statement' :
+    'bank statement';
   const justifications: string[] = [];
 
   for (const f of vo.flags) {
     if (f.level === 'red' && f.id === 'fund-parking') {
       justifications.push(
-        `Regarding the large credit of ₹${Math.round(vo.largestDeposit.amount).toLocaleString('en-IN')} reflected in my statement: this represents a genuine, traceable transaction (proceeds / maturity / family transfer) and is fully documented. It is not a borrowed sum parked temporarily for visa purposes, and my account history demonstrates consistent activity well before this credit.`,
+        `Regarding the large credit of ₹${Math.round(vo.largestDeposit.amount).toLocaleString('en-IN')} reflected in the ${stmtLabel}: this represents a genuine, traceable transaction (proceeds / maturity / family transfer) and is fully documented. It is not a borrowed sum parked temporarily for visa purposes, and the account history demonstrates consistent activity well before this credit.`,
       );
     }
     if (f.level === 'yellow' && f.id === 'no-economic-ties') {
@@ -42,7 +48,7 @@ function buildDraft(opts: {
     }
     if (f.level === 'yellow' && f.id === 'ghost-account') {
       justifications.push(
-        `Please note that the submitted account is one of several accounts I operate. Day-to-day expenses are routed through other accounts; this statement is provided primarily to evidence sufficient funds available for the trip.`,
+        `Please note that the submitted account is one of several accounts ${accountType === 'sponsor' ? 'my sponsor operates' : 'I operate'}. Day-to-day expenses are routed through other accounts; this ${stmtLabel} is provided primarily to evidence sufficient funds available for the trip.`,
       );
     }
     if (f.level === 'yellow' && f.id === 'affordability') {
@@ -55,6 +61,16 @@ function buildDraft(opts: {
         `My income, while not always credited on a fixed date, is consistent over the year as supported by my ITR filings. I have attached supporting documentation to evidence the source and continuity of these earnings.`,
       );
     }
+    if (f.level === 'yellow' && f.id === 'business-liquidity-weak') {
+      justifications.push(
+        `While the company / current account balance reflects working-capital deployment in business operations, sufficient personal liquidity and fixed deposits are available to fully fund this trip without disturbing business cashflow.`,
+      );
+    }
+    if (f.level === 'yellow' && f.id === 'business-operations-weak') {
+      justifications.push(
+        `The submitted current account reflects only a portion of overall business activity. GST returns, invoices and additional operating accounts can be provided to evidence the active and genuine nature of the business.`,
+      );
+    }
   }
 
   const lines: string[] = [];
@@ -62,8 +78,9 @@ function buildDraft(opts: {
   lines.push('');
   lines.push('The Visa Officer');
   lines.push(`Embassy / Consulate of ${country}`);
+  lines.push('[Enter City Name Here]');
   lines.push('');
-  lines.push(`Subject: Cover Letter in support of my Tourist Visa application to ${country}`);
+  lines.push(`Subject: Financial Justification Letter in support of my Tourist Visa application to ${country}`);
   lines.push('');
   lines.push('Respected Sir / Madam,');
   lines.push('');
@@ -72,7 +89,7 @@ function buildDraft(opts: {
   );
   lines.push('');
   lines.push(
-    `I have planned this trip carefully and have arranged my travel, accommodation and itinerary in advance. I have also organised the required funds to comfortably cover all expenses of this visit, as evidenced by the bank statement enclosed with this application.`,
+    `I have planned this trip carefully and have arranged my travel, accommodation and itinerary in advance. I have also organised the required funds to comfortably cover all expenses of this visit, as evidenced by the ${stmtLabel} enclosed with this application.`,
   );
   if (justifications.length) {
     lines.push('');
@@ -91,10 +108,10 @@ function buildDraft(opts: {
   return lines.join('\n');
 }
 
-export function CoverLetterStep({ country, score, category, voResult }: Props) {
+export function CoverLetterStep({ country, score, category, voResult, accountType = 'personal' }: Props) {
   const [applicantName, setApplicantName] = useState('');
   const initial = useMemo(
-    () => buildDraft({ applicantName, country, score, category, vo: voResult }),
+    () => buildDraft({ applicantName, country, score, category, vo: voResult, accountType }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -103,9 +120,9 @@ export function CoverLetterStep({ country, score, category, voResult }: Props) {
 
   useEffect(() => {
     if (!dirty) {
-      setText(buildDraft({ applicantName, country, score, category, vo: voResult }));
+      setText(buildDraft({ applicantName, country, score, category, vo: voResult, accountType }));
     }
-  }, [applicantName, country, score, category, voResult, dirty]);
+  }, [applicantName, country, score, category, voResult, dirty, accountType]);
 
   const handleDownload = async () => {
     const paragraphs = text.split('\n').map(line =>
@@ -122,11 +139,11 @@ export function CoverLetterStep({ country, score, category, voResult }: Props) {
       }],
     });
     const blob = await Packer.toBlob(doc);
-    saveAs(blob, `Visa-Cover-Letter-${country.replace(/\s+/g, '-')}.docx`);
+    saveAs(blob, `Financial_Justification_Letter_${country.replace(/\s+/g, '_')}.docx`);
   };
 
   const regenerate = () => {
-    setText(buildDraft({ applicantName, country, score, category, vo: voResult }));
+    setText(buildDraft({ applicantName, country, score, category, vo: voResult, accountType }));
     setDirty(false);
   };
 
@@ -140,7 +157,7 @@ export function CoverLetterStep({ country, score, category, voResult }: Props) {
       <div className="flex items-center gap-3">
         <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 text-white flex items-center justify-center font-bold text-sm">3</div>
         <div>
-          <h2 className="text-xl font-bold leading-tight">Smart Cover Letter</h2>
+          <h2 className="text-xl font-bold leading-tight">Financial Justification Letter</h2>
           <p className="text-xs text-muted-foreground">Pre-drafted to defend any flags from Step 2. Edit freely.</p>
         </div>
       </div>
@@ -172,7 +189,7 @@ export function CoverLetterStep({ country, score, category, voResult }: Props) {
               className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-lg"
             >
               <Download className="mr-2 h-4 w-4" />
-              Download as Word Document
+              Download Financial Justification Letter
             </Button>
             <Button onClick={regenerate} variant="outline" size="lg">
               <RefreshCw className="mr-2 h-4 w-4" /> Reset Draft
