@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { parseStatementFromAOA, runVORules, VOResult } from '@/lib/voMathEngine';
+import { parseStatementFromAOA, runVORules, VOResult, AccountType } from '@/lib/voMathEngine';
 import { PrivacyNote } from './PrivacyNote';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const VALID_EXT = ['xlsx', 'xls'];
 const VALID_MIME = [
@@ -18,11 +19,46 @@ const VALID_MIME = [
 ];
 
 interface Props {
-  onComplete: (result: VOResult, fileName: string) => void;
+  onComplete: (result: VOResult, fileName: string, accountType: AccountType) => void;
   employmentType?: string;
 }
 
-export function BankAnalyzerStep({ onComplete, employmentType = 'Salaried' }: Props) {
+type AccountOpt = { value: AccountType; label: string };
+
+function getAccountOptions(employmentType: string): AccountOpt[] {
+  const t = employmentType || '';
+  if (t === 'salaried' || t === 'Salaried') {
+    return [{ value: 'personal', label: 'Personal / Savings Account' }];
+  }
+  if (t === 'self_business' || t === 'Self Business') {
+    return [
+      { value: 'personal', label: 'Personal / Savings Account' },
+      { value: 'company', label: 'Company / Current Account' },
+    ];
+  }
+  if (t === 'salaried_sponsored' || t === 'Salaried but Sponsored') {
+    return [
+      { value: 'personal', label: 'Personal / Savings Account' },
+      { value: 'sponsor', label: "Sponsor's Account" },
+    ];
+  }
+  if (t === 'self_business_sponsored' || t === 'Self Business but Sponsored') {
+    return [
+      { value: 'personal', label: 'Personal / Savings Account' },
+      { value: 'company', label: 'Company / Current Account' },
+      { value: 'sponsor', label: "Sponsor's Account" },
+    ];
+  }
+  if (/^sponsored_/i.test(t) || /Sponsored \(by/i.test(t)) {
+    return [
+      { value: 'personal', label: 'Personal / Savings Account' },
+      { value: 'sponsor', label: "Sponsor's Account" },
+    ];
+  }
+  return [{ value: 'personal', label: 'Personal / Savings Account' }];
+}
+
+export function BankAnalyzerStep({ onComplete, employmentType = 'salaried' }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +66,8 @@ export function BankAnalyzerStep({ onComplete, employmentType = 'Salaried' }: Pr
   const [fileName, setFileName] = useState<string>('');
   const [tripCost, setTripCost] = useState('150000');
   const inputRef = useRef<HTMLInputElement>(null);
+  const accountOptions = getAccountOptions(employmentType);
+  const [accountType, setAccountType] = useState<AccountType>(accountOptions[0].value);
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
@@ -61,9 +99,9 @@ export function BankAnalyzerStep({ onComplete, employmentType = 'Salaried' }: Pr
         }
       }
       if (!txns.length) throw lastErr || new Error('No transactions detected in this workbook.');
-      const vo = runVORules(txns, Number(tripCost) || 0, employmentType);
+      const vo = runVORules(txns, Number(tripCost) || 0, employmentType, accountType);
       setResult(vo);
-      onComplete(vo, file.name);
+      onComplete(vo, file.name, accountType);
     } catch (e: any) {
       const msg = e?.message || 'Failed to parse the bank statement.';
       setError(msg);
@@ -71,7 +109,7 @@ export function BankAnalyzerStep({ onComplete, employmentType = 'Salaried' }: Pr
     } finally {
       setParsing(false);
     }
-  }, [tripCost, onComplete, employmentType]);
+  }, [tripCost, onComplete, employmentType, accountType]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -102,6 +140,36 @@ export function BankAnalyzerStep({ onComplete, employmentType = 'Salaried' }: Pr
 
       <Card className="border-2 border-dashed bg-gradient-to-br from-indigo-50/40 to-blue-50/40 dark:from-indigo-950/20 dark:to-blue-950/20">
         <CardContent className="p-5 space-y-4">
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">Account Type</Label>
+            {accountOptions.length === 1 ? (
+              <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm font-medium flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-primary" />
+                {accountOptions[0].label}
+                <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">Auto-selected</span>
+              </div>
+            ) : (
+              <RadioGroup
+                value={accountType}
+                onValueChange={(v) => setAccountType(v as AccountType)}
+                className="grid gap-2"
+              >
+                {accountOptions.map(opt => (
+                  <label
+                    key={opt.value}
+                    htmlFor={`acc-${opt.value}`}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                      accountType === opt.value ? 'border-primary bg-primary/5' : 'hover:bg-muted/30'
+                    }`}
+                  >
+                    <RadioGroupItem id={`acc-${opt.value}`} value={opt.value} />
+                    <span className="font-medium">{opt.label}</span>
+                  </label>
+                ))}
+              </RadioGroup>
+            )}
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="trip-cost" className="text-xs font-semibold">Estimated Trip Cost (₹)</Label>
             <Input
