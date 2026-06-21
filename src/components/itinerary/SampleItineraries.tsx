@@ -1,9 +1,18 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, MapPin, Search, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, Globe, MapPin, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -12,17 +21,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SAMPLE_ITINERARIES } from '@/data/sampleItineraries';
+import { cn } from '@/lib/utils';
 
 export function SampleItineraries() {
   const countries = useMemo(() => Object.keys(SAMPLE_ITINERARIES), []);
   const [country, setCountry] = useState<string>(countries[0]);
-  const [search, setSearch] = useState('');
-
-  const filteredCountries = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return countries;
-    return countries.filter((c) => c.toLowerCase().includes(q));
-  }, [countries, search]);
+  const [open, setOpen] = useState(false);
 
   const nightsOptions = useMemo(() => {
     return Object.keys(SAMPLE_ITINERARIES[country] || {}).sort(
@@ -54,39 +58,55 @@ export function SampleItineraries() {
         </p>
       </CardHeader>
       <CardContent className="p-4 space-y-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search countries (e.g. Italy, Dubai)"
-            className="pl-9"
-          />
-        </div>
-
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
               Country
             </label>
-            <Select value={country} onValueChange={handleCountryChange}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {filteredCountries.length === 0 ? (
-                  <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    No countries found
-                  </div>
-                ) : (
-                  filteredCountries.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+            <Popover open={open} onOpenChange={setOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={open}
+                  className="w-full justify-between font-normal"
+                >
+                  <span className="truncate">{country}</span>
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="p-0 w-[--radix-popover-trigger-width] max-h-[60vh]"
+                align="start"
+              >
+                <Command>
+                  <CommandInput placeholder="Search country..." />
+                  <CommandList>
+                    <CommandEmpty>No countries found.</CommandEmpty>
+                    <CommandGroup>
+                      {countries.map((c) => (
+                        <CommandItem
+                          key={c}
+                          value={c}
+                          onSelect={() => {
+                            handleCountryChange(c);
+                            setOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              'mr-2 h-4 w-4',
+                              country === c ? 'opacity-100' : 'opacity-0'
+                            )}
+                          />
+                          {c}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
