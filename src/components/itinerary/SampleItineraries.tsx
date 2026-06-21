@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, MapPin, Sparkles } from 'lucide-react';
+import { Globe, MapPin, Search, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -15,6 +16,13 @@ import { SAMPLE_ITINERARIES } from '@/data/sampleItineraries';
 export function SampleItineraries() {
   const countries = useMemo(() => Object.keys(SAMPLE_ITINERARIES), []);
   const [country, setCountry] = useState<string>(countries[0]);
+  const [search, setSearch] = useState('');
+
+  const filteredCountries = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return countries;
+    return countries.filter((c) => c.toLowerCase().includes(q));
+  }, [countries, search]);
 
   const nightsOptions = useMemo(() => {
     return Object.keys(SAMPLE_ITINERARIES[country] || {}).sort(
@@ -46,6 +54,16 @@ export function SampleItineraries() {
         </p>
       </CardHeader>
       <CardContent className="p-4 space-y-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search countries (e.g. Italy, Dubai)"
+            className="pl-9"
+          />
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
@@ -56,11 +74,17 @@ export function SampleItineraries() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {countries.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
+                {filteredCountries.length === 0 ? (
+                  <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                    No countries found
+                  </div>
+                ) : (
+                  filteredCountries.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
