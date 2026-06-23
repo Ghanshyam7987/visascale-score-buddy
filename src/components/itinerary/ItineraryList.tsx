@@ -123,7 +123,7 @@ export function ItineraryList() {
                     {new Date(itinerary.created_at).toLocaleDateString('en-IN')}
                   </div>
                 </div>
-                <Dialog>
+                <Dialog onOpenChange={(open) => { if (open) ensureSignedUrl(itinerary); }}>
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm">
                       <Eye className="h-4 w-4 mr-1" />
@@ -135,13 +135,18 @@ export function ItineraryList() {
                       <DialogTitle>{itinerary.title}</DialogTitle>
                     </DialogHeader>
                     <div className="flex-1 h-full min-h-0">
-                      {/* Use Google Docs Viewer to prevent download */}
-                      <iframe
-                        src={`https://docs.google.com/gview?url=${encodeURIComponent(itinerary.pdf_url)}&embedded=true`}
-                        className="w-full h-full rounded border"
-                        title={itinerary.title}
-                        sandbox="allow-scripts allow-same-origin"
-                      />
+                      {signedUrls[itinerary.id] ? (
+                        <iframe
+                          src={`https://docs.google.com/gview?url=${encodeURIComponent(signedUrls[itinerary.id])}&embedded=true`}
+                          className="w-full h-full rounded border"
+                          title={itinerary.title}
+                          sandbox="allow-scripts allow-same-origin"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+                          {signingId === itinerary.id ? 'Loading preview…' : 'Preparing secure preview…'}
+                        </div>
+                      )}
                     </div>
                   </DialogContent>
                 </Dialog>
