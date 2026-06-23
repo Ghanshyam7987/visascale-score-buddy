@@ -19,6 +19,8 @@ interface Itinerary {
 export function ItineraryList() {
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [signingId, setSigningId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchItineraries();
@@ -38,6 +40,29 @@ export function ItineraryList() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const extractStoragePath = (url: string): string | null => {
+    const marker = '/itineraries/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return decodeURIComponent(url.slice(idx + marker.length).split('?')[0]);
+  };
+
+  const ensureSignedUrl = async (itinerary: Itinerary) => {
+    if (signedUrls[itinerary.id]) return;
+    const path = extractStoragePath(itinerary.pdf_url);
+    if (!path) return;
+    setSigningId(itinerary.id);
+    const { data, error } = await supabase.storage
+      .from('itineraries')
+      .createSignedUrl(path, 60 * 30);
+    setSigningId(null);
+    if (error || !data?.signedUrl) {
+      console.error('Failed to sign itinerary URL', error);
+      return;
+    }
+    setSignedUrls((prev) => ({ ...prev, [itinerary.id]: data.signedUrl }));
   };
 
   if (isLoading) {
