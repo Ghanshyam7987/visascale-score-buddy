@@ -19,6 +19,8 @@ interface Itinerary {
 export function ItineraryList() {
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [signingId, setSigningId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchItineraries();
@@ -38,6 +40,29 @@ export function ItineraryList() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const extractStoragePath = (url: string): string | null => {
+    const marker = '/itineraries/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return decodeURIComponent(url.slice(idx + marker.length).split('?')[0]);
+  };
+
+  const ensureSignedUrl = async (itinerary: Itinerary) => {
+    if (signedUrls[itinerary.id]) return;
+    const path = extractStoragePath(itinerary.pdf_url);
+    if (!path) return;
+    setSigningId(itinerary.id);
+    const { data, error } = await supabase.storage
+      .from('itineraries')
+      .createSignedUrl(path, 60 * 30);
+    setSigningId(null);
+    if (error || !data?.signedUrl) {
+      console.error('Failed to sign itinerary URL', error);
+      return;
+    }
+    setSignedUrls((prev) => ({ ...prev, [itinerary.id]: data.signedUrl }));
   };
 
   if (isLoading) {
@@ -98,7 +123,7 @@ export function ItineraryList() {
                     {new Date(itinerary.created_at).toLocaleDateString('en-IN')}
                   </div>
                 </div>
-                <Dialog>
+                <Dialog onOpenChange={(open) => { if (open) ensureSignedUrl(itinerary); }}>
                   <DialogTrigger asChild>
                     <Button variant="outline" size="sm">
                       <Eye className="h-4 w-4 mr-1" />
@@ -110,13 +135,18 @@ export function ItineraryList() {
                       <DialogTitle>{itinerary.title}</DialogTitle>
                     </DialogHeader>
                     <div className="flex-1 h-full min-h-0">
-                      {/* Use Google Docs Viewer to prevent download */}
-                      <iframe
-                        src={`https://docs.google.com/gview?url=${encodeURIComponent(itinerary.pdf_url)}&embedded=true`}
-                        className="w-full h-full rounded border"
-                        title={itinerary.title}
-                        sandbox="allow-scripts allow-same-origin"
-                      />
+                      {signedUrls[itinerary.id] ? (
+                        <iframe
+                          src={`https://docs.google.com/gview?url=${encodeURIComponent(signedUrls[itinerary.id])}&embedded=true`}
+                          className="w-full h-full rounded border"
+                          title={itinerary.title}
+                          sandbox="allow-scripts allow-same-origin"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+                          {signingId === itinerary.id ? 'Loading preview…' : 'Preparing secure preview…'}
+                        </div>
+                      )}
                     </div>
                   </DialogContent>
                 </Dialog>
