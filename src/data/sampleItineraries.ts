@@ -3288,5 +3288,4 @@ export const SAMPLE_ITINERARIES: SampleItineraries = {
       { day: 7, activity: "Drive back to Nairobi. Departure from Airport", hotel_location: "Check-out" },
     ],
   },
-  },
 };
