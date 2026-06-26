@@ -1,69 +1,270 @@
-export type ItineraryDay = {
-  day: number;
-  activity: string;
-  hotel_location: string;
+// ---------------------------------------------------------------------------
+// Detailed itinerary schema (visa-application grade)
+// ---------------------------------------------------------------------------
+// Each day is one of four types:
+//   - 'arrival'      : Day 1 only. Airport pickup, transfer, rest.
+//   - 'departure'    : Last day only. Check-out and airport drop.
+//   - 'transit'      : Inter-city / inter-country travel day.
+//   - 'sightseeing'  : Full day broken into Morning / Afternoon / Evening.
+//
+// Legacy single-line `activity` entries remain valid for countries that have
+// not been upgraded yet — the renderer handles both shapes.
+// ---------------------------------------------------------------------------
+
+export type TimeSlot = {
+  time: string;       // "08:30 – 12:30"
+  activity: string;   // What the traveller does in this slot
+  transport?: string; // e.g. "Private cab", "BTS Skytrain", "Walking"
 };
+
+type DayBase = {
+  day: number;
+  hotel_location: string; // City or "Check-out"
+  hotel_area?: string;    // Suggested neighbourhood / hotel zone
+};
+
+export type ArrivalDay = DayBase & {
+  type: 'arrival';
+  summary: string;        // Always "Arrival, hotel transfer, and rest"
+  arrival_time?: string;
+  transport?: string;
+};
+
+export type DepartureDay = DayBase & {
+  type: 'departure';
+  summary: string;        // Always "Check-out and airport departure"
+  checkout_time?: string;
+  transport?: string;
+};
+
+export type TransitDay = DayBase & {
+  type: 'transit';
+  from: string;
+  to: string;
+  checkout?: string;      // "Check-out by 11:00"
+  transport: string;      // "Thalys Train 09:45 – 13:04, Paris Nord → Amsterdam Centraal"
+  checkin?: string;       // "Check-in at hotel, freshen up"
+  evening?: string;       // Leisure / dinner suggestion
+};
+
+export type SightseeingDay = DayBase & {
+  type: 'sightseeing';
+  morning: TimeSlot;
+  afternoon: TimeSlot;
+  evening: TimeSlot;
+};
+
+// Backward-compatible legacy entry (single activity line).
+export type LegacyDay = DayBase & {
+  activity: string;
+};
+
+export type ItineraryDay =
+  | ArrivalDay
+  | DepartureDay
+  | TransitDay
+  | SightseeingDay
+  | LegacyDay;
 
 export type SampleItineraries = Record<string, Record<string, ItineraryDay[]>>;
 
 export const SAMPLE_ITINERARIES: SampleItineraries = {
   "Thailand": {
     "4 Nights": [
-      { day: 1, activity: "Arrival at Phuket Airport, Transfer to hotel and relax", hotel_location: "Phuket" },
-      { day: 2, activity: "Full day Phi Phi Island Tour by speedboat with lunch", hotel_location: "Phuket" },
-      { day: 3, activity: "Phuket City Tour & Big Buddha visit", hotel_location: "Phuket" },
-      { day: 4, activity: "Day at leisure for shopping or optional James Bond Island tour", hotel_location: "Phuket" },
-      { day: 5, activity: "Transfer to Phuket Airport for departure", hotel_location: "Check-out" },
+      { day: 1, type: 'arrival', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        summary: 'Arrival at Phuket International Airport (HKT), hotel transfer, and rest.',
+        arrival_time: 'Approx. 14:00 (local)', transport: 'Pre-booked private cab, ~45 min from airport to Patong' },
+      { day: 2, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '07:30 – 12:30', activity: 'Hotel pickup, speedboat to Phi Phi Don — Maya Bay, Pileh Lagoon and Viking Cave with snorkelling stop.', transport: 'Joining-basis speedboat from Chalong Pier' },
+        afternoon: { time: '12:30 – 16:00', activity: 'Buffet lunch on Phi Phi Don, free time on Bamboo Island beach, return cruise to Phuket.', transport: 'Speedboat return' },
+        evening:   { time: '18:30 – 21:30', activity: 'Walk along Bangla Road, dinner at a Thai seafood restaurant in Patong.', transport: 'Walking from hotel' } },
+      { day: 3, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '09:00 – 12:30', activity: 'Half-day Phuket City Tour — Big Buddha view-point and Wat Chalong temple.', transport: 'Private AC car with English-speaking guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Old Phuket Town heritage walk (Sino-Portuguese shophouses, Thalang Road) and Cashew Nut factory visit.', transport: 'Private AC car' },
+        evening:   { time: '19:00 – 21:30', activity: 'Phuket FantaSea cultural show with Thai dinner buffet at Kamala.', transport: 'Shuttle transfer included with show ticket' } },
+      { day: 4, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '08:30 – 13:00', activity: 'James Bond Island & Phang Nga Bay tour by longtail boat, including canoeing through sea caves.', transport: 'Joining tour, coach + longtail boat' },
+        afternoon: { time: '13:00 – 16:30', activity: 'Thai lunch at Panyee floating village, return drive to Phuket.', transport: 'AC coach' },
+        evening:   { time: '18:00 – 21:00', activity: 'Sunset at Karon View Point, dinner at Jungceylon Mall food court.', transport: 'Tuk-tuk' } },
+      { day: 5, type: 'departure', hotel_location: 'Check-out', hotel_area: 'Phuket Airport',
+        summary: 'Check-out and airport departure from Phuket International (HKT).',
+        checkout_time: '11:00', transport: 'Private cab transfer, allow 60 min for traffic' },
     ],
     "5 Nights": [
-      { day: 1, activity: "Arrival at Bangkok Airport, Transfer to Pattaya", hotel_location: "Pattaya" },
-      { day: 2, activity: "Coral Island Tour by speedboat with lunch", hotel_location: "Pattaya" },
-      { day: 3, activity: "Transfer to Bangkok. Enroute visit Gems Gallery", hotel_location: "Bangkok" },
-      { day: 4, activity: "Bangkok Temple Tour (Golden Buddha & Marble Temple)", hotel_location: "Bangkok" },
-      { day: 5, activity: "Full day Safari World and Marine Park", hotel_location: "Bangkok" },
-      { day: 6, activity: "Transfer to Airport for departure", hotel_location: "Check-out" },
+      { day: 1, type: 'arrival', hotel_location: 'Pattaya', hotel_area: 'Beach Road / Soi 4',
+        summary: 'Arrival at Bangkok Suvarnabhumi (BKK), road transfer to Pattaya, and rest.',
+        arrival_time: 'Approx. 13:00', transport: 'Private cab BKK → Pattaya (~2 hr)' },
+      { day: 2, type: 'sightseeing', hotel_location: 'Pattaya', hotel_area: 'Beach Road / Soi 4',
+        morning:   { time: '08:00 – 12:30', activity: 'Coral Island (Koh Larn) speedboat tour — Tawaen Beach with optional banana-boat and parasailing.', transport: 'Speedboat from Bali Hai Pier' },
+        afternoon: { time: '12:30 – 16:30', activity: 'Thai lunch on the island, free time for swimming, return to Pattaya.', transport: 'Speedboat return' },
+        evening:   { time: '19:00 – 22:00', activity: 'Alcazar Cabaret Show followed by walk along Pattaya Walking Street.', transport: 'Songthaew (Baht-bus)' } },
+      { day: 3, type: 'transit', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit (near BTS Asok)',
+        from: 'Pattaya', to: 'Bangkok',
+        checkout: 'Check-out by 11:00 from Pattaya hotel',
+        transport: 'Private AC car Pattaya → Bangkok (~2 hr 15 min), short stop at Gems Gallery enroute',
+        checkin: 'Check-in at Sukhumvit hotel by 15:30, freshen up',
+        evening: 'Evening leisure walk at Terminal 21 Mall food court for dinner' },
+      { day: 4, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '08:30 – 12:30', activity: 'Bangkok Temple Tour — Wat Traimit (Golden Buddha) and Wat Benchamabophit (Marble Temple).', transport: 'Private AC car with guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Grand Palace and Wat Pho (Reclining Buddha) heritage walk.', transport: 'Private car, on-foot inside complex' },
+        evening:   { time: '19:00 – 22:00', activity: 'Chao Phraya Princess Dinner Cruise with live music.', transport: 'Cab to River City Pier' } },
+      { day: 5, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '08:00 – 13:00', activity: 'Full-day Safari World — Safari Park drive through wildlife enclosures.', transport: 'Joining-basis coach' },
+        afternoon: { time: '13:00 – 17:00', activity: 'Marine Park shows — dolphins, sea lions and stunt show, plus lunch.', transport: 'On-foot inside park' },
+        evening:   { time: '19:00 – 21:30', activity: 'Shopping at MBK Center and dinner at Siam Square.', transport: 'BTS Skytrain (Asok → Siam)' } },
+      { day: 6, type: 'departure', hotel_location: 'Check-out', hotel_area: 'Suvarnabhumi Airport',
+        summary: 'Check-out and airport departure from Bangkok Suvarnabhumi (BKK).',
+        checkout_time: '10:00', transport: 'Private cab transfer, allow 90 min in traffic' },
     ],
     "6 Nights": [
-      { day: 1, activity: "Arrival at Phuket Airport, Transfer to hotel", hotel_location: "Phuket" },
-      { day: 2, activity: "Phi Phi Island full-day tour with snorkeling", hotel_location: "Phuket" },
-      { day: 3, activity: "Phuket City Tour & Tiger Kingdom", hotel_location: "Phuket" },
-      { day: 4, activity: "Flight from Phuket to Bangkok. Check-in to hotel", hotel_location: "Bangkok" },
-      { day: 5, activity: "Chao Phraya River Cruise & Asiatique", hotel_location: "Bangkok" },
-      { day: 6, activity: "Safari World and Marine Park full day excursion", hotel_location: "Bangkok" },
-      { day: 7, activity: "Departure from Bangkok Airport", hotel_location: "Check-out" },
+      { day: 1, type: 'arrival', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        summary: 'Arrival at Phuket International (HKT), hotel transfer, and rest.',
+        arrival_time: 'Approx. 14:30', transport: 'Private cab to Patong (~45 min)' },
+      { day: 2, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '07:30 – 12:30', activity: 'Phi Phi Islands speedboat tour with snorkelling at Maya Bay and Pileh Lagoon.', transport: 'Speedboat from Chalong Pier' },
+        afternoon: { time: '12:30 – 16:30', activity: 'Buffet lunch on Phi Phi Don, beach time on Bamboo Island, return to Phuket.', transport: 'Speedboat return' },
+        evening:   { time: '19:00 – 22:00', activity: 'Walk along Bangla Road, Thai seafood dinner.', transport: 'Walking' } },
+      { day: 3, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '09:00 – 12:30', activity: 'Phuket City Tour — Big Buddha and Wat Chalong.', transport: 'Private AC car with guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Tiger Kingdom photo experience and Karon View Point.', transport: 'Private AC car' },
+        evening:   { time: '19:00 – 21:30', activity: 'Simon Cabaret Show followed by dinner at Patong.', transport: 'Cab' } },
+      { day: 4, type: 'transit', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        from: 'Phuket', to: 'Bangkok',
+        checkout: 'Check-out by 10:00 from Phuket hotel',
+        transport: 'Domestic flight HKT → BKK (Thai Smile/AirAsia, approx. 1 hr 25 min); pre-booked airport cabs both ends',
+        checkin: 'Check-in at Sukhumvit hotel by 16:00',
+        evening: 'Evening at leisure — explore Terminal 21 mall for dinner' },
+      { day: 5, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '09:00 – 12:30', activity: 'Grand Palace and Wat Pho heritage walking tour.', transport: 'Private AC car with guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Long-tail boat ride through Bangkok klongs (canals) at Thonburi.', transport: 'Long-tail boat' },
+        evening:   { time: '19:00 – 22:00', activity: 'Chao Phraya River dinner cruise with Thai cultural show.', transport: 'Cab to ICONSIAM pier' } },
+      { day: 6, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '08:00 – 13:00', activity: 'Safari World — Safari Park drive among lions, zebras and giraffes.', transport: 'Joining coach' },
+        afternoon: { time: '13:00 – 17:00', activity: 'Marine Park dolphin and stunt shows, with lunch.', transport: 'On-foot inside park' },
+        evening:   { time: '19:00 – 22:00', activity: 'Shopping at Platinum Fashion Mall and street food at Pratunam.', transport: 'BTS Skytrain' } },
+      { day: 7, type: 'departure', hotel_location: 'Check-out', hotel_area: 'Suvarnabhumi Airport',
+        summary: 'Check-out and airport departure from Bangkok Suvarnabhumi (BKK).',
+        checkout_time: '11:00', transport: 'Private cab, allow 90 min' },
     ],
     "7 Nights": [
-      { day: 1, activity: "Arrival at Phuket Airport, Transfer to hotel", hotel_location: "Phuket" },
-      { day: 2, activity: "James Bond Island Tour by longtail boat", hotel_location: "Phuket" },
-      { day: 3, activity: "Transfer from Phuket to Krabi. Check-in and relax", hotel_location: "Krabi" },
-      { day: 4, activity: "Krabi 4 Islands Tour by longtail boat", hotel_location: "Krabi" },
-      { day: 5, activity: "Flight to Bangkok. Check-in and evening shopping", hotel_location: "Bangkok" },
-      { day: 6, activity: "Bangkok City and Temple Tour", hotel_location: "Bangkok" },
-      { day: 7, activity: "Safari World and Marine Park", hotel_location: "Bangkok" },
-      { day: 8, activity: "Transfer to Bangkok Airport for departure", hotel_location: "Check-out" },
+      { day: 1, type: 'arrival', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        summary: 'Arrival at Phuket International (HKT), hotel transfer, and rest.',
+        arrival_time: 'Approx. 13:30', transport: 'Private cab to Patong' },
+      { day: 2, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '08:00 – 12:30', activity: 'James Bond Island tour by longtail boat through Phang Nga Bay, with sea-cave canoeing.', transport: 'Joining coach + longtail boat' },
+        afternoon: { time: '12:30 – 16:30', activity: 'Thai lunch at Koh Panyee floating village, return drive to hotel.', transport: 'AC coach' },
+        evening:   { time: '19:00 – 21:30', activity: 'Beachside dinner at Patong, walk along Bangla Road.', transport: 'Walking' } },
+      { day: 3, type: 'transit', hotel_location: 'Krabi', hotel_area: 'Ao Nang Beach',
+        from: 'Phuket', to: 'Krabi',
+        checkout: 'Check-out by 11:00 from Phuket hotel',
+        transport: 'Private AC car Phuket → Krabi (~3 hr) via Sarasin Bridge',
+        checkin: 'Check-in at Ao Nang resort by 15:30',
+        evening: 'Sunset walk on Ao Nang Beach and seafood dinner on Soi RCA' },
+      { day: 4, type: 'sightseeing', hotel_location: 'Krabi', hotel_area: 'Ao Nang Beach',
+        morning:   { time: '08:30 – 12:30', activity: 'Krabi 4-Islands tour by longtail boat — Tup Island, Chicken Island, Poda Island and Phra Nang Cave Beach.', transport: 'Longtail boat from Ao Nang Pier' },
+        afternoon: { time: '12:30 – 16:00', activity: 'Snorkelling and lunch on Poda Island, return boat.', transport: 'Longtail boat' },
+        evening:   { time: '18:30 – 21:30', activity: 'Krabi Night Market dinner and shopping for souvenirs.', transport: 'Songthaew' } },
+      { day: 5, type: 'transit', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        from: 'Krabi', to: 'Bangkok',
+        checkout: 'Check-out by 10:00 from Krabi hotel',
+        transport: 'Domestic flight KBV → BKK (approx. 1 hr 30 min) with airport cabs both ends',
+        checkin: 'Check-in at Sukhumvit hotel by 16:00',
+        evening: 'Evening shopping at MBK Center and dinner at Siam Square' },
+      { day: 6, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '09:00 – 12:30', activity: 'Bangkok City & Temple Tour — Wat Traimit, Wat Pho.', transport: 'Private AC car with guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Grand Palace complex and Wat Phra Kaew (Emerald Buddha).', transport: 'On-foot inside complex' },
+        evening:   { time: '19:00 – 22:00', activity: 'Chao Phraya dinner cruise with live music.', transport: 'Cab to ICONSIAM pier' } },
+      { day: 7, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '08:00 – 13:00', activity: 'Safari World — Safari Park drive through wildlife enclosures.', transport: 'Joining coach' },
+        afternoon: { time: '13:00 – 17:00', activity: 'Marine Park shows and lunch.', transport: 'On-foot inside park' },
+        evening:   { time: '19:00 – 22:00', activity: 'Asiatique The Riverfront — Ferris wheel and street-food dinner.', transport: 'Free BTS shuttle ferry from Saphan Taksin' } },
+      { day: 8, type: 'departure', hotel_location: 'Check-out', hotel_area: 'Suvarnabhumi Airport',
+        summary: 'Check-out and airport departure from Bangkok Suvarnabhumi (BKK).',
+        checkout_time: '10:00', transport: 'Private cab, allow 90 min' },
     ],
     "8 Nights": [
-      { day: 1, activity: "Arrival at Bangkok Airport, Transfer to Pattaya", hotel_location: "Pattaya" },
-      { day: 2, activity: "Coral Island Tour with lunch", hotel_location: "Pattaya" },
-      { day: 3, activity: "Nong Nooch Village & Sanctuary of Truth", hotel_location: "Pattaya" },
-      { day: 4, activity: "Transfer to Bangkok. Evening Dinner Cruise", hotel_location: "Bangkok" },
-      { day: 5, activity: "Flight to Phuket. Check-in to resort", hotel_location: "Phuket" },
-      { day: 6, activity: "Phi Phi Island full-day excursion", hotel_location: "Phuket" },
-      { day: 7, activity: "Phuket City Tour", hotel_location: "Phuket" },
-      { day: 8, activity: "Day at leisure for relaxing at Patong Beach", hotel_location: "Phuket" },
-      { day: 9, activity: "Transfer to Phuket Airport for departure", hotel_location: "Check-out" },
+      { day: 1, type: 'arrival', hotel_location: 'Pattaya', hotel_area: 'Beach Road / Soi 4',
+        summary: 'Arrival at Bangkok Suvarnabhumi (BKK), road transfer to Pattaya, and rest.',
+        arrival_time: 'Approx. 13:00', transport: 'Private cab BKK → Pattaya (~2 hr)' },
+      { day: 2, type: 'sightseeing', hotel_location: 'Pattaya', hotel_area: 'Beach Road / Soi 4',
+        morning:   { time: '08:00 – 12:30', activity: 'Coral Island (Koh Larn) speedboat tour with snorkelling.', transport: 'Speedboat from Bali Hai Pier' },
+        afternoon: { time: '12:30 – 16:30', activity: 'Thai lunch on the island, free time at Tawaen Beach, return.', transport: 'Speedboat return' },
+        evening:   { time: '19:00 – 22:00', activity: 'Alcazar Cabaret Show and Walking Street stroll.', transport: 'Songthaew' } },
+      { day: 3, type: 'sightseeing', hotel_location: 'Pattaya', hotel_area: 'Beach Road / Soi 4',
+        morning:   { time: '09:00 – 12:30', activity: 'Nong Nooch Tropical Garden — orchid garden, cultural show and elephant show.', transport: 'Private AC car (~30 min)' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Sanctuary of Truth — all-wood Thai temple at Naklua Beach.', transport: 'Private AC car' },
+        evening:   { time: '19:00 – 22:00', activity: 'Dinner at The Sky Gallery Pattaya overlooking the bay.', transport: 'Cab' } },
+      { day: 4, type: 'transit', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        from: 'Pattaya', to: 'Bangkok',
+        checkout: 'Check-out by 11:00 from Pattaya hotel',
+        transport: 'Private AC car Pattaya → Bangkok (~2 hr 15 min)',
+        checkin: 'Check-in at Sukhumvit hotel by 15:00',
+        evening: 'Evening Chao Phraya Princess Dinner Cruise with cultural show' },
+      { day: 5, type: 'transit', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        from: 'Bangkok', to: 'Phuket',
+        checkout: 'Check-out by 10:00 from Bangkok hotel',
+        transport: 'Domestic flight BKK → HKT (approx. 1 hr 25 min) with airport cabs both ends',
+        checkin: 'Check-in at Patong resort by 16:00',
+        evening: 'Evening leisure walk on Patong Beach, light dinner at hotel' },
+      { day: 6, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '07:30 – 12:30', activity: 'Phi Phi Islands speedboat tour with snorkelling at Maya Bay.', transport: 'Speedboat from Chalong Pier' },
+        afternoon: { time: '12:30 – 16:30', activity: 'Lunch on Phi Phi Don, beach time at Bamboo Island, return cruise.', transport: 'Speedboat return' },
+        evening:   { time: '19:00 – 21:30', activity: 'Bangla Road street-food walking dinner.', transport: 'Walking' } },
+      { day: 7, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '09:00 – 12:30', activity: 'Phuket City Tour — Big Buddha, Wat Chalong and Old Phuket Town.', transport: 'Private AC car with guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Cashew Nut factory visit and Karon View Point photo stop.', transport: 'Private AC car' },
+        evening:   { time: '19:00 – 22:00', activity: 'Phuket FantaSea cultural show with dinner buffet at Kamala.', transport: 'Shuttle included with ticket' } },
+      { day: 8, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '09:30 – 12:30', activity: 'Leisure morning at Patong Beach — swimming and sunbathing.', transport: 'Walking from hotel' },
+        afternoon: { time: '13:30 – 17:30', activity: 'Optional Thai cooking class or spa session at Patong.', transport: 'Walking' },
+        evening:   { time: '19:00 – 21:30', activity: 'Farewell seafood dinner at Patong Beach Road.', transport: 'Walking' } },
+      { day: 9, type: 'departure', hotel_location: 'Check-out', hotel_area: 'Phuket Airport',
+        summary: 'Check-out and airport departure from Phuket International (HKT).',
+        checkout_time: '11:00', transport: 'Private cab, allow 60 min' },
     ],
     "9 Nights": [
-      { day: 1, activity: "Arrival at Phuket Airport, Transfer to hotel", hotel_location: "Phuket" },
-      { day: 2, activity: "Phi Phi Island Tour by speedboat", hotel_location: "Phuket" },
-      { day: 3, activity: "Phuket City Tour & Big Buddha", hotel_location: "Phuket" },
-      { day: 4, activity: "Transfer to Krabi. Evening at leisure", hotel_location: "Krabi" },
-      { day: 5, activity: "Krabi 4 Islands Tour", hotel_location: "Krabi" },
-      { day: 6, activity: "Flight to Bangkok. Check-in and relax", hotel_location: "Bangkok" },
-      { day: 7, activity: "Bangkok City & Temple Tour", hotel_location: "Bangkok" },
-      { day: 8, activity: "Safari World & Marine Park Tour", hotel_location: "Bangkok" },
-      { day: 9, activity: "Full day shopping at MBK Center and Platinum Mall", hotel_location: "Bangkok" },
-      { day: 10, activity: "Departure transfer to Bangkok Airport", hotel_location: "Check-out" },
+      { day: 1, type: 'arrival', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        summary: 'Arrival at Phuket International (HKT), hotel transfer, and rest.',
+        arrival_time: 'Approx. 14:00', transport: 'Private cab to Patong' },
+      { day: 2, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '07:30 – 12:30', activity: 'Phi Phi Islands speedboat tour with snorkelling at Maya Bay and Pileh Lagoon.', transport: 'Speedboat from Chalong Pier' },
+        afternoon: { time: '12:30 – 16:30', activity: 'Lunch on Phi Phi Don, free time on Bamboo Island, return cruise.', transport: 'Speedboat' },
+        evening:   { time: '19:00 – 21:30', activity: 'Bangla Road street-food walking dinner.', transport: 'Walking' } },
+      { day: 3, type: 'sightseeing', hotel_location: 'Phuket', hotel_area: 'Patong Beach',
+        morning:   { time: '09:00 – 12:30', activity: 'Phuket City Tour — Big Buddha and Wat Chalong.', transport: 'Private AC car with guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Old Phuket Town heritage walk and Karon View Point.', transport: 'Private AC car' },
+        evening:   { time: '19:00 – 22:00', activity: 'Simon Cabaret Show with dinner at Patong.', transport: 'Cab' } },
+      { day: 4, type: 'transit', hotel_location: 'Krabi', hotel_area: 'Ao Nang Beach',
+        from: 'Phuket', to: 'Krabi',
+        checkout: 'Check-out by 11:00 from Phuket hotel',
+        transport: 'Private AC car Phuket → Krabi (~3 hr) via Sarasin Bridge',
+        checkin: 'Check-in at Ao Nang resort by 15:30',
+        evening: 'Evening leisure stroll on Ao Nang Beach, seafood dinner' },
+      { day: 5, type: 'sightseeing', hotel_location: 'Krabi', hotel_area: 'Ao Nang Beach',
+        morning:   { time: '08:30 – 12:30', activity: 'Krabi 4-Islands tour by longtail boat — Tup, Chicken, Poda and Phra Nang.', transport: 'Longtail boat from Ao Nang Pier' },
+        afternoon: { time: '12:30 – 16:00', activity: 'Snorkelling and lunch on Poda Island, return.', transport: 'Longtail boat' },
+        evening:   { time: '18:30 – 21:30', activity: 'Krabi Night Market dinner and souvenir shopping.', transport: 'Songthaew' } },
+      { day: 6, type: 'transit', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        from: 'Krabi', to: 'Bangkok',
+        checkout: 'Check-out by 10:00 from Krabi hotel',
+        transport: 'Domestic flight KBV → BKK (approx. 1 hr 30 min) with airport cabs both ends',
+        checkin: 'Check-in at Sukhumvit hotel by 16:00',
+        evening: 'Evening at leisure at Terminal 21 Mall for dinner' },
+      { day: 7, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '09:00 – 12:30', activity: 'Bangkok City & Temple Tour — Wat Traimit (Golden Buddha) and Wat Pho.', transport: 'Private AC car with guide' },
+        afternoon: { time: '13:30 – 17:00', activity: 'Grand Palace and Wat Phra Kaew complex.', transport: 'On-foot inside complex' },
+        evening:   { time: '19:00 – 22:00', activity: 'Chao Phraya Princess Dinner Cruise.', transport: 'Cab to River City Pier' } },
+      { day: 8, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '08:00 – 13:00', activity: 'Safari World — Safari Park drive.', transport: 'Joining coach' },
+        afternoon: { time: '13:00 – 17:00', activity: 'Marine Park dolphin and stunt shows, with lunch.', transport: 'On-foot inside park' },
+        evening:   { time: '19:00 – 22:00', activity: 'Asiatique The Riverfront — Ferris wheel and dinner.', transport: 'Free BTS shuttle ferry from Saphan Taksin' } },
+      { day: 9, type: 'sightseeing', hotel_location: 'Bangkok', hotel_area: 'Sukhumvit',
+        morning:   { time: '10:00 – 13:00', activity: 'Shopping at MBK Center for electronics and souvenirs.', transport: 'BTS to National Stadium' },
+        afternoon: { time: '14:00 – 18:00', activity: 'Shopping at Platinum Fashion Mall (wholesale fashion).', transport: 'BTS to Chit Lom + walk' },
+        evening:   { time: '19:30 – 22:00', activity: 'Farewell Thai dinner at Sukhumvit Soi 11.', transport: 'Walking' } },
+      { day: 10, type: 'departure', hotel_location: 'Check-out', hotel_area: 'Suvarnabhumi Airport',
+        summary: 'Check-out and airport departure from Bangkok Suvarnabhumi (BKK).',
+        checkout_time: '10:00', transport: 'Private cab, allow 90 min' },
     ],
   },
   "Singapore": {
