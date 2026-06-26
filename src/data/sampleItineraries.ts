@@ -1,8 +1,70 @@
-export type ItineraryDay = {
-  day: number;
-  activity: string;
-  hotel_location: string;
+// ---------------------------------------------------------------------------
+// Detailed itinerary schema (visa-application grade)
+// ---------------------------------------------------------------------------
+// Each day is one of four types:
+//   - 'arrival'      : Day 1 only. Airport pickup, transfer, rest.
+//   - 'departure'    : Last day only. Check-out and airport drop.
+//   - 'transit'      : Inter-city / inter-country travel day.
+//   - 'sightseeing'  : Full day broken into Morning / Afternoon / Evening.
+//
+// Legacy single-line `activity` entries remain valid for countries that have
+// not been upgraded yet — the renderer handles both shapes.
+// ---------------------------------------------------------------------------
+
+export type TimeSlot = {
+  time: string;       // "08:30 – 12:30"
+  activity: string;   // What the traveller does in this slot
+  transport?: string; // e.g. "Private cab", "BTS Skytrain", "Walking"
 };
+
+type DayBase = {
+  day: number;
+  hotel_location: string; // City or "Check-out"
+  hotel_area?: string;    // Suggested neighbourhood / hotel zone
+};
+
+export type ArrivalDay = DayBase & {
+  type: 'arrival';
+  summary: string;        // Always "Arrival, hotel transfer, and rest"
+  arrival_time?: string;
+  transport?: string;
+};
+
+export type DepartureDay = DayBase & {
+  type: 'departure';
+  summary: string;        // Always "Check-out and airport departure"
+  checkout_time?: string;
+  transport?: string;
+};
+
+export type TransitDay = DayBase & {
+  type: 'transit';
+  from: string;
+  to: string;
+  checkout?: string;      // "Check-out by 11:00"
+  transport: string;      // "Thalys Train 09:45 – 13:04, Paris Nord → Amsterdam Centraal"
+  checkin?: string;       // "Check-in at hotel, freshen up"
+  evening?: string;       // Leisure / dinner suggestion
+};
+
+export type SightseeingDay = DayBase & {
+  type: 'sightseeing';
+  morning: TimeSlot;
+  afternoon: TimeSlot;
+  evening: TimeSlot;
+};
+
+// Backward-compatible legacy entry (single activity line).
+export type LegacyDay = DayBase & {
+  activity: string;
+};
+
+export type ItineraryDay =
+  | ArrivalDay
+  | DepartureDay
+  | TransitDay
+  | SightseeingDay
+  | LegacyDay;
 
 export type SampleItineraries = Record<string, Record<string, ItineraryDay[]>>;
 
