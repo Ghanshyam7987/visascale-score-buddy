@@ -384,7 +384,7 @@ export default function PassportExtractor() {
                   rows.map((row, rowIdx) => (
                     <tr
                       key={row.id}
-                      onClick={() => { setSelectedId(row.id); setRotation(0); }}
+                      onClick={() => { setSelectedId(row.id); setRotation(0); setRotated(false); }}
                       className={`border-t cursor-pointer hover:bg-muted/30 ${selectedId === row.id ? 'bg-muted/50' : ''}`}
                     >
                       <td className="p-2">
