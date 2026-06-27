@@ -31,6 +31,16 @@ export interface MRZResult {
   checksumValid: boolean;
 }
 
+export function sanitizeName(name: string): string {
+  if (!name) return "";
+  // Strip trailing junk: repeating <, L, or K sequences misread by OCR.
+  return name
+    .replace(/[LK<]{3,}.*$/gi, "")
+    .replace(/[<]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function formatDate(yymmdd: string, futureHint = false): string {
   if (!/^\d{6}$/.test(yymmdd)) return "";
   const yy = parseInt(yymmdd.slice(0, 2), 10);
@@ -88,8 +98,8 @@ export function parseMrz(text: string): MRZResult | null {
   const nationality = line1.slice(2, 5).replace(/</g, "");
   const namePart = line1.slice(5);
   const [surnameRaw, givenRaw = ""] = namePart.split("<<");
-  const surname = surnameRaw.replace(/</g, " ").trim();
-  const givenName = givenRaw.replace(/</g, " ").trim();
+  const surname = sanitizeName(surnameRaw.replace(/</g, " "));
+  const givenName = sanitizeName(givenRaw.replace(/</g, " "));
 
   // Line 2 positions
   const passportNumber = line2.slice(0, 9).replace(/</g, "");

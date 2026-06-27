@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { createWorker } from 'tesseract.js';
 import * as XLSX from 'xlsx';
-import { parseMrz } from '@/lib/mrzParser';
+import { parseMrz, sanitizeName } from '@/lib/mrzParser';
 
 const MAX_ROWS = 200;
 
@@ -29,6 +29,26 @@ const EDITABLE_FIELDS: (keyof Applicant)[] = [
   'surname', 'givenName', 'gender', 'dateOfBirth', 'placeOfBirth', 'dateOfIssue', 'dateOfExpiry', 'nationality',
 ];
 
+const REQUIRED_FIELDS: (keyof Applicant)[] = [
+  'surname', 'givenName', 'gender', 'dateOfBirth', 'placeOfBirth', 'dateOfIssue', 'dateOfExpiry', 'nationality',
+];
+const DATE_RE = /^\d{2}\/\d{2}\/\d{4}$/;
+
+function computeStatus(
+  data: Omit<Applicant, 'id' | 'imageUrl' | 'status'>,
+  checksumValid: boolean,
+): 'verified' | 'review' {
+  if (!checksumValid) return 'review';
+  for (const f of REQUIRED_FIELDS) {
+    const v = (data as Record<string, string>)[f];
+    if (!v || !String(v).trim()) return 'review';
+  }
+  if (!DATE_RE.test(data.dateOfBirth) || !DATE_RE.test(data.dateOfExpiry) || !DATE_RE.test(data.dateOfIssue)) {
+    return 'review';
+  }
+  return 'verified';
+}
+
 const COLUMNS: { key: keyof Applicant; label: string }[] = [
   { key: 'surname', label: 'Surname' },
   { key: 'givenName', label: 'Given Name' },
@@ -40,7 +60,10 @@ const COLUMNS: { key: keyof Applicant; label: string }[] = [
   { key: 'nationality', label: 'Nationality' },
 ];
 
-async function extractFromImage(file: File, worker: Tesseract.Worker): Promise<Omit<Applicant, 'id' | 'imageUrl'>> {
+async function extractFromImage(
+  file: File | Blob | string,
+  worker: Tesseract.Worker,
+): Promise<Omit<Applicant, 'id' | 'imageUrl'>> {
   // Run full-image OCR once.
   const { data } = await worker.recognize(file);
   const text = data.text || '';
@@ -62,10 +85,9 @@ async function extractFromImage(file: File, worker: Tesseract.Worker): Promise<O
   }
 
   if (mrz) {
-    return {
-      status: mrz.checksumValid ? 'verified' : 'review',
-      surname: mrz.surname,
-      givenName: mrz.givenName,
+    const base = {
+      surname: sanitizeName(mrz.surname),
+      givenName: sanitizeName(mrz.givenName),
       gender: mrz.gender,
       dateOfBirth: mrz.dateOfBirth,
       placeOfBirth,
@@ -73,6 +95,7 @@ async function extractFromImage(file: File, worker: Tesseract.Worker): Promise<O
       dateOfExpiry: mrz.dateOfExpiry,
       nationality: mrz.nationality,
     };
+    return { ...base, status: computeStatus(base, mrz.checksumValid) };
   }
 
   return {
@@ -91,6 +114,8 @@ export default function PassportExtractor() {
   const [rotation, setRotation] = useState(0);
   const [editingCell, setEditingCell] = useState<{ id: string; key: keyof Applicant } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [isRescanning, setIsRescanning] = useState(false);
+  const [rotated, setRotated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedRow = useMemo(() => rows.find((r) => r.id === selectedId) || null, [rows, selectedId]);
@@ -163,7 +188,17 @@ export default function PassportExtractor() {
   };
 
   const updateCell = (id: string, key: keyof Applicant, value: string) => {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [key]: value } : r)));
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const sanitized = key === 'surname' || key === 'givenName' ? sanitizeName(value) : value;
+        const updated = { ...r, [key]: sanitized };
+        // Re-evaluate verification on every edit. Without re-running MRZ we can only downgrade.
+        const { id: _i, imageUrl: _u, status: _s, ...rest } = updated;
+        const recomputed = computeStatus(rest, r.status === 'verified');
+        return { ...updated, status: recomputed };
+      }),
+    );
   };
 
   const deleteRow = (id: string) => {
@@ -204,6 +239,45 @@ export default function PassportExtractor() {
     const date = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `Visa_Applicants_Export_${date}.xlsx`);
   };
+
+  async function rescanCurrent() {
+    if (!selectedRow) return;
+    setIsRescanning(true);
+    try {
+      // Render the rotated image to a canvas, then OCR.
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = selectedRow.imageUrl;
+      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('img load')); });
+      const rad = (rotation * Math.PI) / 180;
+      const sin = Math.abs(Math.sin(rad));
+      const cos = Math.abs(Math.cos(rad));
+      const w = img.width * cos + img.height * sin;
+      const h = img.width * sin + img.height * cos;
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      const dataUrl = canvas.toDataURL('image/png');
+
+      const worker = await createWorker('eng');
+      try {
+        const data = await extractFromImage(dataUrl, worker);
+        setRows((prev) => prev.map((r) => (r.id === selectedRow.id ? { ...r, ...data } : r)));
+        toast.success('Passport re-scanned.');
+        setRotated(false);
+      } finally {
+        await worker.terminate();
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Re-scan failed.');
+    } finally {
+      setIsRescanning(false);
+    }
+  }
 
   const handleCellKey = (e: React.KeyboardEvent, rowIdx: number, colIdx: number) => {
     if (e.key === 'Enter' || e.key === 'Escape') {
@@ -310,7 +384,7 @@ export default function PassportExtractor() {
                   rows.map((row, rowIdx) => (
                     <tr
                       key={row.id}
-                      onClick={() => { setSelectedId(row.id); setRotation(0); }}
+                      onClick={() => { setSelectedId(row.id); setRotation(0); setRotated(false); }}
                       className={`border-t cursor-pointer hover:bg-muted/30 ${selectedId === row.id ? 'bg-muted/50' : ''}`}
                     >
                       <td className="p-2">
@@ -369,7 +443,10 @@ export default function PassportExtractor() {
               <h3 className="text-sm font-semibold">Preview</h3>
               {selectedRow && (
                 <div className="flex gap-1">
-                  <Button variant="outline" size="icon" onClick={() => setRotation((r) => (r + 90) % 360)}>
+                  <Button variant="outline" size="icon" onClick={() => { setRotation((r) => (r - 90 + 360) % 360); setRotated(true); }}>
+                    <RotateCw className="h-4 w-4 -scale-x-100" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={() => { setRotation((r) => (r + 90) % 360); setRotated(true); }}>
                     <RotateCw className="h-4 w-4" />
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)}>
@@ -379,14 +456,25 @@ export default function PassportExtractor() {
               )}
             </div>
             {selectedRow ? (
-              <div className="overflow-hidden rounded border bg-muted/30 aspect-[4/3] flex items-center justify-center">
-                <img
-                  src={selectedRow.imageUrl}
-                  alt="Passport"
-                  className="max-w-full max-h-full object-contain transition-transform"
-                  style={{ transform: `rotate(${rotation}deg)` }}
-                />
-              </div>
+              <>
+                <div className="overflow-hidden rounded border bg-muted/30 aspect-[4/3] flex items-center justify-center">
+                  <img
+                    src={selectedRow.imageUrl}
+                    alt="Passport"
+                    className="max-w-full max-h-full object-contain transition-transform"
+                    style={{ transform: `rotate(${rotation}deg)` }}
+                  />
+                </div>
+                {rotated && (
+                  <Button
+                    onClick={rescanCurrent}
+                    disabled={isRescanning}
+                    className="w-full mt-2"
+                  >
+                    {isRescanning ? 'Re-scanning...' : 'Re-Scan Passport'}
+                  </Button>
+                )}
+              </>
             ) : (
               <p className="text-xs text-muted-foreground text-center py-8">
                 Click a row to preview that passport.
