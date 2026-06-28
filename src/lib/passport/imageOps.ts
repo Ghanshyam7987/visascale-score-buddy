@@ -283,10 +283,14 @@ export function adaptiveThreshold2D(
  *  3. Local contrast / adaptive threshold with a 25 px window.
  * Returns a binarised canvas suitable for direct Tesseract OCR.
  */
-export function enhanceMrz(src: HTMLCanvasElement, targetH = 140): HTMLCanvasElement {
+export function enhanceMrz(src: HTMLCanvasElement, targetH = 220): HTMLCanvasElement {
+  // Scale up MRZ band so each glyph is ~50 px tall. The chevron `<`
+  // filler is the most easily confused glyph (with K, C, L, I) when
+  // strokes are sub-pixel; upscaling before binarisation preserves the
+  // diagonal strokes that distinguish `<` from alphabetic characters.
   const scaled = src.height < targetH ? scaleToHeight(src, targetH) : src;
-  const sharp = sharpen(scaled, 0.6);
-  return adaptiveThreshold2D(sharp, 25, 10);
+  const sharp = sharpen(scaled, 0.9);
+  return adaptiveThreshold2D(sharp, 35, 12);
 }
 
 /**
