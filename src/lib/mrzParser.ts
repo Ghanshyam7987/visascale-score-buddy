@@ -69,6 +69,22 @@ export function sanitizeName(name: string): string {
   return tokens.join(" ");
 }
 
+/**
+ * Final Given Name formatter. Runs ONLY on the validated Given Name
+ * string returned by the ICAO parser. Per spec:
+ *  - strip trailing ICAO filler characters (`<`)
+ *  - convert any remaining internal `<` separators to a single space
+ *  - preserve every alphabetic character exactly as parsed
+ * No letter recovery, no fuzzy correction, no substitution, no merging
+ * with other OCR passes.
+ */
+export function formatGivenName(name: string): string {
+  if (!name) return "";
+  const upper = name.toUpperCase();
+  const noTrailingFillers = upper.replace(/<+$/g, "");
+  return noTrailingFillers.replace(/<+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function formatDate(yymmdd: string, futureHint = false): string {
   if (!/^\d{6}$/.test(yymmdd)) return "";
   const yy = parseInt(yymmdd.slice(0, 2), 10);
@@ -312,7 +328,7 @@ export function parseNormalizedLines(lines: [string, string]): MRZResult | null 
   const compositeOk = !!compChk?.valid;
 
   const surname = sanitizeName((last?.value || '').replace(/</g, ' '));
-  const givenName = sanitizeName((first?.value || '').replace(/</g, ' '));
+  const givenName = formatGivenName(first?.value || '');
   const sexRaw = (sex?.value || '').toString().toUpperCase();
   // The `mrz` library normalises sex to "MALE"/"FEMALE"; older callers
   // and our downstream UI expect a single-letter code or "Male"/"Female".
