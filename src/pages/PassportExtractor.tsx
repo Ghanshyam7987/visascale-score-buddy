@@ -38,7 +38,7 @@ import {
   STAGE_LABEL,
   computeStatus,
 } from '@/lib/passport/types';
-import { TesseractExtractor } from '@/lib/passport/tesseractExtractor';
+import { WorkerPoolExtractor } from '@/lib/passport/workerPoolExtractor';
 import { emptyApplicant, runPipeline } from '@/lib/passport/pipeline';
 import { exportApplicantsToExcel } from '@/lib/passport/excel';
 import { sanitizeName } from '@/lib/mrzParser';
@@ -161,7 +161,7 @@ export default function PassportExtractor() {
       setIsProcessing(true);
       setProgress({ index: 0, total: toProcess.length, stage: 'preparing', etaSeconds: null });
 
-      const extractor = new TesseractExtractor();
+      const extractor = new WorkerPoolExtractor();
       const controller = new AbortController();
       abortRef.current = controller;
       await extractor.init();
