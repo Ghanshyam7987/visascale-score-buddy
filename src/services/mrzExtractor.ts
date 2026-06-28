@@ -281,6 +281,19 @@ export class MrzExtractor implements PassportExtractor {
 
       if (best?.parsed.fields) {
         const f = best.parsed.fields;
+        if (DEBUG_MRZ) {
+          const winLines = extractMrzLines(best.text);
+          const rawL1 = winLines ? winLines[0] : '';
+          const rawL2 = winLines ? winLines[1] : '';
+          // eslint-disable-next-line no-console
+          console.log('[MRZ DEBUG] 1. Raw OCR MRZ Line 1:', JSON.stringify(rawL1));
+          // eslint-disable-next-line no-console
+          console.log('[MRZ DEBUG] 2. Raw OCR MRZ Line 2:', JSON.stringify(rawL2));
+          // eslint-disable-next-line no-console
+          console.log('[MRZ DEBUG] 3. ICAO parser surname:', JSON.stringify(f.surname));
+          // eslint-disable-next-line no-console
+          console.log('[MRZ DEBUG] 4. ICAO parser givenName:', JSON.stringify(f.givenName));
+        }
         const fields: Omit<ExtractedFields, 'status'> = {
           ...emptyFields(),
           surname: f.surname,
@@ -292,6 +305,10 @@ export class MrzExtractor implements PassportExtractor {
           passportNumber: f.passportNumber,
         };
         const out = { ...fields, status: computeStatus(fields, true) };
+        if (DEBUG_MRZ) {
+          // eslint-disable-next-line no-console
+          console.log('[MRZ DEBUG] 7. Final value rendered in Given Name column:', JSON.stringify(out.givenName));
+        }
         return out;
       }
 
