@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, FileSpreadsheet, Trash2, RotateCw, ShieldCheck, CheckCircle2, AlertTriangle, X, Eraser, Download } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, RotateCw, ShieldCheck, CheckCircle2, AlertTriangle, X, Eraser, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
-import { createWorker } from 'tesseract.js';
+import { createWorker, PSM } from 'tesseract.js';
 import * as XLSX from 'xlsx';
 import { parseMrz, sanitizeName } from '@/lib/mrzParser';
 
@@ -20,19 +20,21 @@ interface Applicant {
   dateOfBirth: string;
   placeOfBirth: string;
   dateOfIssue: string;
+  placeOfIssue: string;
   dateOfExpiry: string;
   nationality: string;
   imageUrl: string;
 }
 
 const EDITABLE_FIELDS: (keyof Applicant)[] = [
-  'surname', 'givenName', 'gender', 'dateOfBirth', 'placeOfBirth', 'dateOfIssue', 'dateOfExpiry', 'nationality',
+  'surname', 'givenName', 'gender', 'dateOfBirth', 'placeOfBirth', 'dateOfIssue', 'placeOfIssue', 'dateOfExpiry', 'nationality',
 ];
 
 const REQUIRED_FIELDS: (keyof Applicant)[] = [
-  'surname', 'givenName', 'gender', 'dateOfBirth', 'placeOfBirth', 'dateOfIssue', 'dateOfExpiry', 'nationality',
+  'surname', 'givenName', 'gender', 'dateOfBirth', 'placeOfBirth', 'dateOfIssue', 'placeOfIssue', 'dateOfExpiry', 'nationality',
 ];
 const DATE_RE = /^\d{2}\/\d{2}\/\d{4}$/;
+const PLACE_RE = /^[A-Za-z\s,]+$/;
 
 function computeStatus(
   data: Omit<Applicant, 'id' | 'imageUrl' | 'status'>,
@@ -56,33 +58,140 @@ const COLUMNS: { key: keyof Applicant; label: string }[] = [
   { key: 'dateOfBirth', label: 'Date of Birth' },
   { key: 'placeOfBirth', label: 'Place of Birth' },
   { key: 'dateOfIssue', label: 'Date of Issue' },
+  { key: 'placeOfIssue', label: 'Place of Issue' },
   { key: 'dateOfExpiry', label: 'Date of Expiry' },
   { key: 'nationality', label: 'Nationality' },
 ];
 
-async function extractFromImage(
-  file: File | Blob | string,
+function validPlace(value: string): string {
+  const v = value.trim().replace(/\s+/g, ' ');
+  if (!v) return '';
+  if (!PLACE_RE.test(v)) return '';
+  if (v.length < 2 || v.length > 60) return '';
+  return v.toUpperCase();
+}
+
+function normalizeDate(raw: string): string {
+  const m = raw.match(/(\d{2})[\/\-\.\s](\d{2})[\/\-\.\s](\d{2,4})/);
+  if (!m) return '';
+  let [, dd, mm, yy] = m;
+  if (yy.length === 2) {
+    const cy = new Date().getFullYear() % 100;
+    yy = (parseInt(yy, 10) <= cy ? '20' : '19') + yy;
+  }
+  return `${dd}/${mm}/${yy}`;
+}
+
+/** Render image (optionally rotated) onto a canvas, return the canvas. */
+async function renderToCanvas(src: string, rotationDeg = 0): Promise<HTMLCanvasElement> {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.src = src;
+  await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('img load')); });
+  const rad = (rotationDeg * Math.PI) / 180;
+  const sin = Math.abs(Math.sin(rad));
+  const cos = Math.abs(Math.cos(rad));
+  const w = Math.round(img.width * cos + img.height * sin);
+  const h = Math.round(img.width * sin + img.height * cos);
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  return canvas;
+}
+
+/** High-contrast grayscale + binarization to wash out holograms/watermarks. */
+function binarize(source: HTMLCanvasElement, threshold = 150): HTMLCanvasElement {
+  const out = document.createElement('canvas');
+  out.width = source.width; out.height = source.height;
+  const sctx = source.getContext('2d')!;
+  const octx = out.getContext('2d')!;
+  const img = sctx.getImageData(0, 0, source.width, source.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    // Luminance
+    const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    // Boost contrast aggressively, then threshold.
+    const boosted = (y - 128) * 1.6 + 128;
+    const v = boosted < threshold ? 0 : 255;
+    d[i] = d[i + 1] = d[i + 2] = v;
+    d[i + 3] = 255;
+  }
+  octx.putImageData(img, 0, 0);
+  return out;
+}
+
+/** Crop a sub-region from a canvas. */
+function cropCanvas(src: HTMLCanvasElement, x: number, y: number, w: number, h: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d')!.drawImage(src, x, y, w, h, 0, 0, w, h);
+  return c;
+}
+
+async function extractFromCanvas(
+  baseCanvas: HTMLCanvasElement,
   worker: Tesseract.Worker,
 ): Promise<Omit<Applicant, 'id' | 'imageUrl'>> {
-  // Run full-image OCR once.
-  const { data } = await worker.recognize(file);
-  const text = data.text || '';
+  const W = baseCanvas.width;
+  const H = baseCanvas.height;
 
-  const mrz = parseMrz(text);
+  // Visual zone: upper 80% — preprocessed (grayscale + binarization).
+  const upperRaw = cropCanvas(baseCanvas, 0, 0, W, Math.round(H * 0.8));
+  const upperBin = binarize(upperRaw, 150);
 
-  // Try to extract place of birth and date of issue from upper section heuristically.
-  const upperLines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // MRZ zone: bottom 22% — preprocessed with a tighter threshold for sharp glyphs.
+  const mrzRaw = cropCanvas(baseCanvas, 0, Math.round(H * 0.78), W, Math.round(H * 0.22));
+  const mrzBin = binarize(mrzRaw, 130);
+
+  // --- MRZ pass: strict whitelist so `<` is never misread as K/L. ---
+  await worker.setParameters({
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
+    tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+  });
+  const mrzRes = await worker.recognize(mrzBin);
+  const mrz = parseMrz(mrzRes.data.text || '');
+
+  // --- Visual zone pass: default alphabet for human-readable text. ---
+  await worker.setParameters({
+    tessedit_char_whitelist: '',
+    tessedit_pageseg_mode: PSM.AUTO,
+  });
+  const upperRes = await worker.recognize(upperBin);
+  const upperText = upperRes.data.text || '';
+  const upperLines = upperText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  // --- Place of Birth / Place of Issue heuristics ---
   let placeOfBirth = '';
-  let dateOfIssue = '';
-  for (const line of upperLines) {
+  let placeOfIssue = '';
+  for (let i = 0; i < upperLines.length; i++) {
+    const line = upperLines[i];
     if (!placeOfBirth && /place\s*of\s*birth/i.test(line)) {
-      placeOfBirth = line.split(/place\s*of\s*birth/i)[1]?.replace(/[:\-]/g, '').trim() || '';
+      const tail = line.split(/place\s*of\s*birth/i)[1] || '';
+      const candidate = tail.replace(/[:\-]/g, '').trim() || upperLines[i + 1] || '';
+      placeOfBirth = validPlace(candidate);
     }
-    if (!dateOfIssue) {
-      const m = line.match(/(?:date\s*of\s*issue|issue\s*date)[^\d]*(\d{2}[\/\-\.\s]\d{2}[\/\-\.\s]\d{2,4})/i);
-      if (m) dateOfIssue = m[1].replace(/\s/g, '/').replace(/[-.]/g, '/');
+    if (!placeOfIssue && /place\s*of\s*issue/i.test(line)) {
+      const tail = line.split(/place\s*of\s*issue/i)[1] || '';
+      const candidate = tail.replace(/[:\-]/g, '').trim() || upperLines[i + 1] || '';
+      placeOfIssue = validPlace(candidate);
     }
   }
+
+  // --- Date elimination strategy ---
+  // Collect all DD/MM/YYYY (and short variants) from the upper text.
+  const dateMatches = Array.from(upperText.matchAll(/\b(\d{2}[\/\-\.\s]\d{2}[\/\-\.\s]\d{2,4})\b/g))
+    .map((m) => normalizeDate(m[1]))
+    .filter(Boolean);
+  const uniqueDates = Array.from(new Set(dateMatches));
+
+  const dob = mrz?.dateOfBirth || '';
+  const expiry = mrz?.dateOfExpiry || '';
+  const dateOfIssue = uniqueDates.find((d) => d !== dob && d !== expiry) || '';
 
   if (mrz) {
     const base = {
@@ -92,6 +201,7 @@ async function extractFromImage(
       dateOfBirth: mrz.dateOfBirth,
       placeOfBirth,
       dateOfIssue,
+      placeOfIssue,
       dateOfExpiry: mrz.dateOfExpiry,
       nationality: mrz.nationality,
     };
@@ -101,8 +211,17 @@ async function extractFromImage(
   return {
     status: 'review',
     surname: '', givenName: '', gender: '', dateOfBirth: '',
-    placeOfBirth, dateOfIssue, dateOfExpiry: '', nationality: '',
+    placeOfBirth, dateOfIssue, placeOfIssue, dateOfExpiry: '', nationality: '',
   };
+}
+
+async function extractFromImage(
+  src: string,
+  worker: Tesseract.Worker,
+  rotationDeg = 0,
+): Promise<Omit<Applicant, 'id' | 'imageUrl'>> {
+  const canvas = await renderToCanvas(src, rotationDeg);
+  return extractFromCanvas(canvas, worker);
 }
 
 export default function PassportExtractor() {
@@ -152,19 +271,18 @@ export default function PassportExtractor() {
       for (let i = 0; i < toProcess.length; i++) {
         const file = toProcess[i];
         setProgress({ current: i + 1, total: toProcess.length });
+        const url = URL.createObjectURL(file);
         try {
-          const data = await extractFromImage(file, worker);
-          const url = URL.createObjectURL(file);
+          const data = await extractFromImage(url, worker, 0);
           const id = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`;
           setRows((prev) => [...prev, { id, imageUrl: url, ...data }]);
         } catch (e) {
           console.error('OCR failed for', file.name, e);
-          const url = URL.createObjectURL(file);
           const id = `${Date.now()}-${i}-err`;
           setRows((prev) => [...prev, {
             id, imageUrl: url, status: 'review',
             surname: '', givenName: '', gender: '', dateOfBirth: '',
-            placeOfBirth: '', dateOfIssue: '', dateOfExpiry: '', nationality: '',
+            placeOfBirth: '', dateOfIssue: '', placeOfIssue: '', dateOfExpiry: '', nationality: '',
           }]);
         }
       }
@@ -230,6 +348,7 @@ export default function PassportExtractor() {
       'Date of Birth': r.dateOfBirth,
       'Place of Birth': r.placeOfBirth,
       'Date of Issue': r.dateOfIssue,
+      'Place of Issue': r.placeOfIssue,
       'Date of Expiry': r.dateOfExpiry,
       Nationality: r.nationality,
     }));
@@ -244,27 +363,9 @@ export default function PassportExtractor() {
     if (!selectedRow) return;
     setIsRescanning(true);
     try {
-      // Render the rotated image to a canvas, then OCR.
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = selectedRow.imageUrl;
-      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('img load')); });
-      const rad = (rotation * Math.PI) / 180;
-      const sin = Math.abs(Math.sin(rad));
-      const cos = Math.abs(Math.cos(rad));
-      const w = img.width * cos + img.height * sin;
-      const h = img.width * sin + img.height * cos;
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d')!;
-      ctx.translate(w / 2, h / 2);
-      ctx.rotate(rad);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
-      const dataUrl = canvas.toDataURL('image/png');
-
       const worker = await createWorker('eng');
       try {
-        const data = await extractFromImage(dataUrl, worker);
+        const data = await extractFromImage(selectedRow.imageUrl, worker, rotation);
         setRows((prev) => prev.map((r) => (r.id === selectedRow.id ? { ...r, ...data } : r)));
         toast.success('Passport re-scanned.');
         setRotated(false);
@@ -363,14 +464,21 @@ export default function PassportExtractor() {
         {/* Table + preview */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
           <Card className="overflow-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '110px' }} />
+                {COLUMNS.map((c) => (
+                  <col key={c.key} style={{ width: c.key === 'gender' ? '70px' : '120px' }} />
+                ))}
+                <col style={{ width: '60px' }} />
+              </colgroup>
               <thead className="bg-muted/50 sticky top-0">
                 <tr>
-                  <th className="text-left p-2 font-medium">Status</th>
+                  <th className="text-left p-2 font-medium truncate">Status</th>
                   {COLUMNS.map((c) => (
-                    <th key={c.key} className="text-left p-2 font-medium whitespace-nowrap">{c.label}</th>
+                    <th key={c.key} className="text-left p-2 font-medium truncate">{c.label}</th>
                   ))}
-                  <th className="text-left p-2 font-medium">Action</th>
+                  <th className="text-left p-2 font-medium truncate">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -404,7 +512,7 @@ export default function PassportExtractor() {
                           <td
                             key={col.key}
                             onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ id: row.id, key: col.key }); }}
-                            className="p-2 min-w-[110px]"
+                            className="p-2 overflow-hidden"
                           >
                             {isEditing ? (
                               <input
@@ -416,7 +524,12 @@ export default function PassportExtractor() {
                                 className="w-full px-1 py-0.5 border border-primary rounded outline-none bg-background"
                               />
                             ) : (
-                              <span className="block truncate">{String(row[col.key] ?? '') || <span className="text-muted-foreground italic">—</span>}</span>
+                              <span
+                                className="block truncate"
+                                title={String(row[col.key] ?? '')}
+                              >
+                                {String(row[col.key] ?? '') || <span className="text-muted-foreground italic">—</span>}
+                              </span>
                             )}
                           </td>
                         );
