@@ -82,7 +82,15 @@ export class MrzExtractor implements PassportExtractor {
 
   async init(): Promise<void> {
     if (this.worker) return;
-    this.worker = await createWorker('eng');
+    // Use the MRZ-specific Tesseract language model (trained on OCR-B and
+    // the ICAO `<` filler glyph) instead of the generic English model.
+    // Source: DoubangoTelecom/tesseractMRZ (tessdata_best/mrz.traineddata),
+    // a Tesseract 4+ LSTM model compatible with tesseract.js.
+    this.worker = await createWorker('mrz', 1, {
+      langPath:
+        'https://cdn.jsdelivr.net/gh/DoubangoTelecom/tesseractMRZ@master/tessdata_best',
+      gzip: false,
+    });
     await this.worker.setParameters({
       tessedit_char_whitelist: MRZ_WHITELIST,
       tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
