@@ -87,9 +87,30 @@ export class MrzExtractor implements PassportExtractor {
 
   async init(): Promise<void> {
     if (this.worker) return;
-    // Stable configuration: use the bundled English Tesseract model.
-    // All accuracy improvements live in the preprocessing pipeline.
-    this.worker = await createWorker('eng');
+    // OCR engine: load the MRZ-specific (OCR-B) traineddata model
+    // hosted by DoubangoTelecom. The standard `eng.traineddata` model
+    // is trained on natural-language English glyphs and consistently
+    // misreads the ICAO filler chevron `<` as alphabetic letters
+    // (K / L / C / I) inside MRZ Line 1. The `mrz.traineddata` model
+    // is trained on the OCR-B font used by every ICAO 9303 machine-
+    // readable zone and recognises `<` as a first-class glyph.
+    //
+    // Fallback: if the MRZ model fails to load (CDN blocked, offline,
+    // etc.) we transparently fall back to `eng` so extraction still
+    // works — accuracy will be lower but the page does not break.
+    const MRZ_LANG_URL =
+      'https://github.com/DoubangoTelecom/tesseractMRZ/raw/master/tessdata_best/';
+    try {
+      this.worker = await createWorker('mrz', 1, {
+        langPath: MRZ_LANG_URL,
+        gzip: false,
+        cacheMethod: 'write',
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[MRZ] mrz.traineddata failed to load, falling back to eng:', err);
+      this.worker = await createWorker('eng');
+    }
     await this.worker.setParameters({
       tessedit_char_whitelist: MRZ_WHITELIST,
       // SINGLE_LINE: every OCR call below operates on exactly one MRZ
