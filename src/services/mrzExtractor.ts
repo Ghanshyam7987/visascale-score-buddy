@@ -82,15 +82,30 @@ export class MrzExtractor implements PassportExtractor {
 
   async init(): Promise<void> {
     if (this.worker) return;
-    // Use the MRZ-specific Tesseract language model (trained on OCR-B and
-    // the ICAO `<` filler glyph) instead of the generic English model.
-    // Source: DoubangoTelecom/tesseractMRZ (tessdata_best/mrz.traineddata),
-    // a Tesseract 4+ LSTM model compatible with tesseract.js.
-    this.worker = await createWorker('mrz', 1, {
-      langPath:
-        'https://cdn.jsdelivr.net/gh/DoubangoTelecom/tesseractMRZ@master/tessdata_best',
-      gzip: false,
-    });
+    // Try the MRZ-specific Tesseract language model (trained on OCR-B and
+    // the ICAO `<` filler glyph). Source: DoubangoTelecom/tesseractMRZ
+    // (tessdata_best/mrz.traineddata), served uncompressed via jsDelivr.
+    //
+    // tesseract.js v7 fetches `<lang>.traineddata.gz` from `langPath` by
+    // default. The DoubangoTelecom repo only ships the uncompressed
+    // `.traineddata` file (the `.gz` variant 404s), so we pass
+    // `gzip: false`. If the load still fails for any reason (network,
+    // version mismatch, option not honoured) we transparently fall back
+    // to the bundled `eng` model so the extractor never enters a
+    // permanent "Failed" state due to language initialization.
+    try {
+      this.worker = await createWorker('mrz', 1, {
+        langPath:
+          'https://cdn.jsdelivr.net/gh/DoubangoTelecom/tesseractMRZ@master/tessdata_best',
+        gzip: false,
+      } as any);
+    } catch (err) {
+      console.warn(
+        '[MRZ] mrz.traineddata failed to load, falling back to eng:',
+        err,
+      );
+      this.worker = await createWorker('eng');
+    }
     await this.worker.setParameters({
       tessedit_char_whitelist: MRZ_WHITELIST,
       tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
