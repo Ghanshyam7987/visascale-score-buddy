@@ -33,11 +33,14 @@ export interface MRZResult {
 
 export function sanitizeName(name: string): string {
   if (!name) return "";
-  // Strip trailing junk: repeating <, L, or K sequences misread by OCR.
+  // Strip trailing junk: repeating <, L, or K sequences misread by OCR,
+  // and strip single leading K or L artifacts from MRZ filler misreads.
   return name
     .replace(/[LK<]{3,}.*$/gi, "")
+    .replace(/[KL<]{2,}$/i, "")
     .replace(/[<]+/g, " ")
     .replace(/\s+/g, " ")
+    .replace(/^[KL]\s+/i, "")
     .trim();
 }
 
