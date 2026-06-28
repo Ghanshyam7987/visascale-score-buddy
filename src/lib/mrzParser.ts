@@ -1,7 +1,10 @@
 // ICAO 9303 TD3 (passport) MRZ parser with strict fixed-position parsing,
 // per-field OCR normalization, and full checksum validation (including
-// composite). Designed to be the single source of truth for MRZ data —
-// no heuristics, no AI guessing.
+// composite). Backed by the standards-compliant `mrz` npm package for
+// the actual field/checksum logic so we don't maintain a hand-rolled
+// ICAO implementation.
+
+import { parse as parseMrzLib } from 'mrz';
 
 const CHAR_VALUES: Record<string, number> = (() => {
   const map: Record<string, number> = { "<": 0 };
@@ -145,73 +148,96 @@ export function extractMrzLines(text: string): [string, string] | null {
 }
 
 /**
- * Strict ICAO 9303 TD3 parser. Uses FIXED positions, applies per-field
- * OCR normalization, splits the name on `<<` only.
+ * Per-field OCR normalization, applied BEFORE handing the line off to the
+ * `mrz` library. We only fix OCR confusions in zones where the ICAO spec
+ * mandates a strict alpha/numeric character class — never inside the name
+ * field's alpha chars or inside the alphanumeric passport-number zone.
+ */
+function normalizeMrzLines(l1Raw: string, l2Raw: string): [string, string] {
+  const l1 = l1Raw.padEnd(44, '<').slice(0, 44);
+  const l2 = l2Raw.padEnd(44, '<').slice(0, 44);
+
+  // Line 1: positions 0 (doc code "P"), 1 (subtype, alpha or "<"),
+  // 2-4 issuing country (alpha-3), 5-43 names (alpha).
+  const docCode = l1[0] === '8' ? 'P' : l1[0]; // common P↔8 OCR confusion
+  const sub = l1[1];
+  const issuing = toAlpha(l1.slice(2, 5));
+  const names = toAlpha(l1.slice(5, 44));
+  const newL1 = docCode + sub + issuing + names;
+
+  // Line 2: 0-8 passport (alnum), 9 check (digit), 10-12 nationality (alpha),
+  // 13-18 DOB (digit), 19 check, 20 sex (alpha), 21-26 expiry (digit),
+  // 27 check, 28-41 optional, 42 check, 43 composite check.
+  const passport = toAlnum(l2.slice(0, 9));
+  const passportChk = toDigits(l2.slice(9, 10));
+  const nat = toAlpha(l2.slice(10, 13));
+  const dob = toDigits(l2.slice(13, 19));
+  const dobChk = toDigits(l2.slice(19, 20));
+  const sex = toAlpha(l2.slice(20, 21));
+  const expiry = toDigits(l2.slice(21, 27));
+  const expiryChk = toDigits(l2.slice(27, 28));
+  const opt = l2.slice(28, 42).toUpperCase();
+  const optChk = toDigits(l2.slice(42, 43));
+  const composite = toDigits(l2.slice(43, 44));
+  const newL2 =
+    passport + passportChk + nat + dob + dobChk + sex + expiry + expiryChk + opt + optChk + composite;
+
+  return [newL1, newL2];
+}
+
+/**
+ * Strict ICAO 9303 TD3 parser. Normalises OCR confusions in
+ * spec-mandated zones, then delegates field extraction + checksum
+ * verification to the standards-compliant `mrz` library.
  */
 export function parseMrz(text: string): MRZResult | null {
   const lines = extractMrzLines(text);
   if (!lines) return null;
-  const [l1, l2] = lines;
+  const [l1, l2] = normalizeMrzLines(lines[0], lines[1]);
+  return parseNormalizedLines([l1, l2]);
+}
 
-  // ─── Line 1 (positions are ICAO-fixed) ──────────────────────────────
-  // 0      : doc type ("P")
-  // 1      : doc subtype / "<"
-  // 2-4    : issuing country (alpha-3)
-  // 5-43   : name field = SURNAME<<GIVEN<NAMES, filler "<"
-  const issuingCountry = toAlpha(l1.slice(2, 5)).replace(/</g, "");
-  const nameField = l1.slice(5, 44);
-  // Names are alpha-only — fix digit→letter confusions inside the name field.
-  const nameAlpha = toAlpha(nameField);
-  // Split STRICTLY on `<<`. The first chunk is the surname, the rest is given names.
-  const nameParts = nameAlpha.split("<<");
-  const surname = sanitizeName((nameParts[0] || "").replace(/</g, " "));
-  const givenName = sanitizeName(
-    nameParts.slice(1).join(" ").replace(/</g, " "),
-  );
+/**
+ * Parse already-normalised, exactly-44-char TD3 lines via the `mrz`
+ * library. Exposed so the extractor can mix-and-match best line-1 /
+ * line-2 candidates across OCR passes.
+ */
+export function parseNormalizedLines(lines: [string, string]): MRZResult | null {
+  let res;
+  try {
+    res = parseMrzLib(lines);
+  } catch {
+    return null;
+  }
+  if (res.format !== 'TD3') return null;
 
-  // ─── Line 2 (fixed positions) ───────────────────────────────────────
-  // 0-8   : passport number
-  // 9     : passport-number check digit
-  // 10-12 : nationality (alpha-3)
-  // 13-18 : DOB (YYMMDD)
-  // 19    : DOB check digit
-  // 20    : sex
-  // 21-26 : expiry (YYMMDD)
-  // 27    : expiry check digit
-  // 28-41 : personal number
-  // 42    : personal number check
-  // 43    : composite check
-  const passportNumber = toAlnum(l2.slice(0, 9)).replace(/</g, "");
-  const passportCheckChar = toDigits(l2.slice(9, 10));
-  const nationality = toAlpha(l2.slice(10, 13)).replace(/</g, "");
-  const dobRaw = toDigits(l2.slice(13, 19));
-  const dobCheckChar = toDigits(l2.slice(19, 20));
-  const sexRaw = toAlpha(l2.slice(20, 21));
-  const expiryRaw = toDigits(l2.slice(21, 27));
-  const expiryCheckChar = toDigits(l2.slice(27, 28));
-  const personalRaw = l2.slice(28, 42);
-  const personalCheckChar = toDigits(l2.slice(42, 43));
-  const compositeCheckChar = toDigits(l2.slice(43, 44));
+  const find = (name: string) => res.details.find((d) => d.field === name);
+  const docNum = find('documentNumber');
+  const docChk = find('documentNumberCheckDigit');
+  const dobF = find('birthDate');
+  const dobChk = find('birthDateCheckDigit');
+  const expF = find('expirationDate');
+  const expChk = find('expirationDateCheckDigit');
+  const compChk = find('compositeCheckDigit');
+  const nat = find('nationality');
+  const issuing = find('issuingState');
+  const sex = find('sex');
+  const last = find('lastName');
+  const first = find('firstName');
 
-  // Per-field checksums.
-  const passportOk =
-    String(computeCheckDigit(toAlnum(l2.slice(0, 9)))) === passportCheckChar;
-  const dobOk = String(computeCheckDigit(dobRaw)) === dobCheckChar;
-  const expiryOk = String(computeCheckDigit(expiryRaw)) === expiryCheckChar;
+  const passportOk = !!(docNum?.valid && docChk?.valid);
+  const dobOk = !!(dobF?.valid && dobChk?.valid);
+  const expiryOk = !!(expF?.valid && expChk?.valid);
+  const compositeOk = !!compChk?.valid;
 
-  // Composite check covers: passport(0-9) + dob(13-20) + expiry(21-28) + personal(28-43).
-  const compositeInput =
-    toAlnum(l2.slice(0, 10)) +
-    toDigits(l2.slice(13, 20)) +
-    toDigits(l2.slice(21, 28)) +
-    personalRaw +
-    personalCheckChar;
-  const compositeOk =
-    String(computeCheckDigit(compositeInput)) === compositeCheckChar;
+  const surname = sanitizeName((last?.value || '').replace(/</g, ' '));
+  const givenName = sanitizeName((first?.value || '').replace(/</g, ' '));
+  const sexValue = (sex?.value || '').toUpperCase();
 
-  const checksumValid = passportOk && dobOk && expiryOk;
+  // Library returns birthDate / expirationDate as YYMMDD strings.
+  const dobRaw = dobF?.value || '';
+  const expRaw = expF?.value || '';
 
-  // Confidence: weighted checksum pass-rate.
   const score =
     (passportOk ? 0.3 : 0) +
     (dobOk ? 0.25 : 0) +
@@ -223,12 +249,12 @@ export function parseMrz(text: string): MRZResult | null {
   return {
     surname,
     givenName,
-    gender: sexRaw === "M" ? "Male" : sexRaw === "F" ? "Female" : "",
+    gender: sexValue === 'M' ? 'Male' : sexValue === 'F' ? 'Female' : '',
     dateOfBirth: formatDate(dobRaw, false),
-    dateOfExpiry: formatDate(expiryRaw, true),
-    nationality: nationality || issuingCountry,
-    passportNumber,
-    checksumValid,
+    dateOfExpiry: formatDate(expRaw, true),
+    nationality: (nat?.value || issuing?.value || '').toUpperCase(),
+    passportNumber: (docNum?.value || '').toUpperCase(),
+    checksumValid: passportOk && dobOk && expiryOk,
     checks: {
       passport: passportOk,
       dob: dobOk,
@@ -238,3 +264,38 @@ export function parseMrz(text: string): MRZResult | null {
     confidence: Math.min(1, score),
   };
 }
+
+/**
+ * Per-line check helpers used by the extractor to score & mix the best
+ * line-1 / line-2 candidates across multiple OCR passes.
+ */
+export function scoreLine1(line: string): number {
+  const l = line.padEnd(44, '<').slice(0, 44).toUpperCase();
+  let s = 0;
+  if (l[0] === 'P') s += 3;
+  if (/^[A-Z<]$/.test(l[1])) s += 0.5;
+  if (/^[A-Z]{3}$/.test(l.slice(2, 5))) s += 2;
+  if (l.slice(5, 44).includes('<<')) s += 3;
+  const fillers = (l.match(/</g) || []).length;
+  s += Math.min(2, fillers / 10);
+  return s;
+}
+
+export function scoreLine2(line: string): number {
+  const l = line.padEnd(44, '<').slice(0, 44).toUpperCase();
+  let s = 0;
+  const passport = toAlnum(l.slice(0, 9));
+  const passportChk = toDigits(l.slice(9, 10));
+  const dob = toDigits(l.slice(13, 19));
+  const dobChk = toDigits(l.slice(19, 20));
+  const expiry = toDigits(l.slice(21, 27));
+  const expiryChk = toDigits(l.slice(27, 28));
+  if (String(computeCheckDigit(passport)) === passportChk) s += 5;
+  if (String(computeCheckDigit(dob)) === dobChk) s += 5;
+  if (String(computeCheckDigit(expiry)) === expiryChk) s += 5;
+  if (/^[A-Z]{3}$/.test(l.slice(10, 13))) s += 1;
+  if (/^[MF<]$/.test(l[20])) s += 1;
+  return s;
+}
+
+export { normalizeMrzLines };
