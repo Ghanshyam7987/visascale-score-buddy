@@ -335,16 +335,74 @@ export class MrzExtractor implements PassportExtractor {
   }): { text: string; parsed: StrictMrzResult } | null {
     if (!buckets.l1.length || !buckets.l2.length) return null;
     const fillerCount = (s: string) => (s.match(/</g) || []).length;
+    // Length of the trailing `<` run on Line 1 — the cleanest reading
+    // of the names section always ends in a long filler tail.
+    const trailingFillerRun = (s: string) => {
+      const m = s.match(/<+$/);
+      return m ? m[0].length : 0;
+    };
+    // Alphabetic noise score for the names section of Line 1 (after
+    // the 5-char document/country prefix). Once the real given names
+    // end, every remaining character SHOULD be `<`. Any alphabetic
+    // glyph appearing AFTER the last `<<` separator and before the
+    // trailing filler tail is OCR misread filler — count those.
+    const noiseAfterName = (s: string) => {
+      const names = s.slice(5).replace(/<+$/, '');
+      // Strip surname (everything up to the first `<<`) and the
+      // surname/given separator; anything left is the given-name
+      // region. Inside it, count alpha runs that follow a filler —
+      // those are the "K", "L", "C" tails we want to penalise.
+      const sepIdx = names.indexOf('<<');
+      if (sepIdx < 0) return 0;
+      const given = names.slice(sepIdx + 2);
+      let noise = 0;
+      let sawFiller = false;
+      for (const ch of given) {
+        if (ch === '<') sawFiller = true;
+        else if (sawFiller) noise += 1;
+      }
+      return noise;
+    };
+    const hasSurnameSep = (s: string) => /^.{5,}?<<[A-Z]/.test(s);
     const dedup = (arr: LineCandidate[]) => {
       const seen = new Set<string>();
       return arr.filter((c) => (seen.has(c.line) ? false : (seen.add(c.line), true)));
     };
-    const l1Sorted = dedup([...buckets.l1]).sort(
-      (a, b) => b.score - a.score || fillerCount(b.line) - fillerCount(a.line),
-    );
+    // Rank Line-1 candidates by the priority list given in the spec:
+    //   1. Surname separator present
+    //   2. Highest ICAO filler preservation
+    //   3. Longest trailing filler run
+    //   4. Lowest alphabetic noise after the real given name
+    //   5. Existing structural score
+    const l1Sorted = dedup([...buckets.l1]).sort((a, b) => {
+      const sepA = hasSurnameSep(a.line) ? 1 : 0;
+      const sepB = hasSurnameSep(b.line) ? 1 : 0;
+      if (sepA !== sepB) return sepB - sepA;
+      const fA = fillerCount(a.line);
+      const fB = fillerCount(b.line);
+      if (fA !== fB) return fB - fA;
+      const tA = trailingFillerRun(a.line);
+      const tB = trailingFillerRun(b.line);
+      if (tA !== tB) return tB - tA;
+      const nA = noiseAfterName(a.line);
+      const nB = noiseAfterName(b.line);
+      if (nA !== nB) return nA - nB;
+      return b.score - a.score;
+    });
     const l2Sorted = dedup([...buckets.l2]).sort((a, b) => b.score - a.score);
-    const top1 = l1Sorted.slice(0, 8);
+    const top1 = l1Sorted.slice(0, 12);
     const top2 = l2Sorted.slice(0, 6);
+
+    // Collect EVERY checksum-valid pair, then pick the one whose
+    // Line-1 has the cleanest filler reading. We deliberately do NOT
+    // early-exit on the first valid pair — a later candidate with
+    // better filler preservation must be allowed to win.
+    type Valid = {
+      text: string;
+      parsed: StrictMrzResult;
+      l1: string;
+    };
+    const valid: Valid[] = [];
     for (const a of top1) {
       for (const b of top2) {
         const [n1, n2] = normalizeMrzLines(a.line, b.line);
@@ -357,10 +415,26 @@ export class MrzExtractor implements PassportExtractor {
         ) {
           const text = `${n1}\n${n2}`;
           const strict = parseStrictMrz(text);
-          if (strict.fields) return { text, parsed: strict };
+          if (strict.fields) valid.push({ text, parsed: strict, l1: n1 });
         }
       }
     }
-    return null;
+    if (!valid.length) return null;
+    valid.sort((x, y) => {
+      const sepX = hasSurnameSep(x.l1) ? 1 : 0;
+      const sepY = hasSurnameSep(y.l1) ? 1 : 0;
+      if (sepX !== sepY) return sepY - sepX;
+      const fX = fillerCount(x.l1);
+      const fY = fillerCount(y.l1);
+      if (fX !== fY) return fY - fX;
+      const tX = trailingFillerRun(x.l1);
+      const tY = trailingFillerRun(y.l1);
+      if (tX !== tY) return tY - tX;
+      const nX = noiseAfterName(x.l1);
+      const nY = noiseAfterName(y.l1);
+      return nX - nY;
+    });
+    const winner = valid[0];
+    return { text: winner.text, parsed: winner.parsed };
   }
 }
