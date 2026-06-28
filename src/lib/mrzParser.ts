@@ -165,56 +165,134 @@ function cleanLine(line: string): string {
 // ─────────────────────────────────────────────────────────────────────
 const FILLER_CONFUSABLES = "CKLITFE";
 
+function isConf(c: string): boolean {
+  return FILLER_CONFUSABLES.includes(c);
+}
+
+/**
+ * Score a reconstructed 39-char name field against ICAO TD3 structural
+ * expectations. No dictionaries — purely shape-based.
+ */
+function scoreNameField(name: string): number {
+  let s = 0;
+  // Mandatory `<<` surname / given separator.
+  if (name.includes("<<")) s += 10;
+  // Trailing filler run — longer is better.
+  const trail = name.match(/<*$/)?.[0].length ?? 0;
+  s += Math.min(15, trail);
+  // Reasonable letter count (a real name field has 6..30 letters).
+  const letters = (name.match(/[A-Z]/g) || []).length;
+  if (letters >= 6 && letters <= 30) s += 5;
+  else if (letters < 6) s -= 5;
+  // Penalise impossible token shapes (single-letter token glued to
+  // trailing fillers, e.g. "<K<<<<<<" — almost always an OCR artefact).
+  const stripped = name.replace(/<+$/, "");
+  const tokens = stripped.split(/<+/).filter(Boolean);
+  for (const t of tokens) {
+    if (t.length === 1) s -= 2;
+    if (t.length >= 2) s += 1;
+  }
+  return s;
+}
+
+/**
+ * MRZ Line-1 Name Recovery.
+ *
+ * Tesseract occasionally recognises the ICAO filler `<` as one of a
+ * small set of visually-similar letters (C, K, L, I, T, F, E). Those
+ * artefacts only ever appear in the name zone (positions 5..43) of
+ * Line 1 and corrupt the parsed Given Name.
+ *
+ * Runs AFTER OCR and BEFORE ICAO parsing. Operates on Line 1 ONLY.
+ *
+ * Strategy: generate a small set of structurally-plausible candidate
+ * reconstructions by greedily forcing trailing confusables and / or
+ * confusables adjacent to existing fillers into `<`. Score every
+ * candidate (including the original untouched line) against ICAO
+ * shape rules and return the highest-scoring one. The untouched line
+ * is always a candidate, so clean MRZ reads can never be made worse.
+ */
 function recoverLine1Name(l1: string): string {
   const padded = l1.padEnd(44, "<").slice(0, 44);
   const prefix = padded.slice(0, 5);
-  const name = padded.slice(5, 44).split("");
+  const original = padded.slice(5, 44); // 39 chars
 
-  // Step 1: trailing-tail recovery.
-  for (let i = name.length - 1; i >= 0; i--) {
-    const c = name[i];
-    if (c === "<") continue;
-    if (FILLER_CONFUSABLES.includes(c)) {
-      name[i] = "<";
-      continue;
-    }
-    break;
-  }
+  const candidates: string[] = [original];
 
-  // Step 2: ensure the `<<` separator exists. If a single confusable
-  // sits between the surname and given-name run, flip it once.
-  let joined = name.join("");
-  if (!joined.includes("<<")) {
-    // Prefer `<X` (artefact straight after surname).
-    let m = joined.match(/<([CKLITFE])/);
-    if (m) {
-      const idx = m.index!;
-      joined = joined.slice(0, idx + 1) + "<" + joined.slice(idx + 2);
-    } else {
-      m = joined.match(/([CKLITFE])</);
-      if (m) {
-        const idx = m.index!;
-        joined = joined.slice(0, idx) + "<" + joined.slice(idx + 1);
+  // Candidate A: trailing-tail recovery. Walk back; convert confusable
+  // letters to `<` while the char immediately to the right (already
+  // processed) is `<`. Stop at the first non-confusable letter.
+  {
+    const arr = original.split("");
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const c = arr[i];
+      if (c === "<") continue;
+      const right = i < arr.length - 1 ? arr[i + 1] : "<";
+      if (isConf(c) && right === "<") {
+        arr[i] = "<";
+        continue;
       }
+      break;
+    }
+    candidates.push(arr.join(""));
+  }
+
+  // Candidate B: lone-artefact recovery. Any confusable letter flanked
+  // by `<` on BOTH sides is treated as a misread filler.
+  {
+    const arr = original.split("");
+    for (let i = 0; i < arr.length; i++) {
+      if (!isConf(arr[i])) continue;
+      const prev = i > 0 ? arr[i - 1] : "<";
+      const next = i < arr.length - 1 ? arr[i + 1] : "<";
+      if (prev === "<" && next === "<") arr[i] = "<";
+    }
+    candidates.push(arr.join(""));
+  }
+
+  // Candidate C: separator recovery. If no `<<` separator exists, flip
+  // a single confusable letter that sits next to a `<` to recreate the
+  // separator. Try both `<X` and `X<` shapes.
+  if (!original.includes("<<")) {
+    const tryFlip = (idx: number) => {
+      const arr = original.split("");
+      arr[idx] = "<";
+      candidates.push(arr.join(""));
+    };
+    let m = original.match(/<([CKLITFE])/);
+    if (m) tryFlip(m.index! + 1);
+    m = original.match(/([CKLITFE])</);
+    if (m) tryFlip(m.index!);
+  }
+
+  // Candidate D: combine trailing + lone artefact recovery (most common
+  // real-world OCR damage pattern).
+  {
+    const arr = candidates[1].split(""); // start from lone-artefact pass
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const c = arr[i];
+      if (c === "<") continue;
+      const right = i < arr.length - 1 ? arr[i + 1] : "<";
+      if (isConf(c) && right === "<") {
+        arr[i] = "<";
+        continue;
+      }
+      break;
+    }
+    candidates.push(arr.join(""));
+  }
+
+  let best = original;
+  let bestScore = scoreNameField(original);
+  for (const c of candidates) {
+    const s = scoreNameField(c);
+    if (s > bestScore) {
+      bestScore = s;
+      best = c;
     }
   }
 
-  // Step 3: lone-artefact recovery inside the given-name run. Only
-  // touches confusables that have a `<` filler on at least one side
-  // AND are not part of a multi-letter token (i.e. truly isolated).
-  const arr = joined.split("");
-  for (let i = 0; i < arr.length; i++) {
-    const c = arr[i];
-    if (!FILLER_CONFUSABLES.includes(c)) continue;
-    const prev = i > 0 ? arr[i - 1] : "<";
-    const next = i < arr.length - 1 ? arr[i + 1] : "<";
-    // Isolated = both neighbours are fillers (or string edges).
-    if (prev === "<" && next === "<") {
-      arr[i] = "<";
-    }
-  }
-
-  return prefix + arr.join("");
+  return prefix + best;
 }
 
 /**
