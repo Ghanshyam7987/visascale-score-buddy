@@ -134,6 +134,89 @@ function cleanLine(line: string): string {
   return line.replace(/\s+/g, "").replace(/[^A-Z0-9<]/gi, "").toUpperCase();
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// MRZ Line-1 Name Recovery.
+//
+// Tesseract occasionally recognises the ICAO filler character `<` as
+// one of a small set of visually similar letters (C, K, L, I — and
+// less often T, F, E). These artefacts only appear in the name zone
+// of line 1 (positions 5..43) and corrupt the parsed Given Name.
+//
+// This pass runs AFTER OCR and BEFORE ICAO parsing. It operates on
+// MRZ Line-1 ONLY. It never touches Line-2 fields (passport number,
+// nationality, DOB, gender, expiry, checksums).
+//
+// Algorithm (purely structural — no dictionaries, no language hints):
+//   1.  Repair the trailing filler run. Walk from position 43 back
+//       toward 5; while we are still inside an all-filler tail,
+//       convert any visually-confusable letter into `<`. Stop the
+//       walk as soon as we hit a non-confusable letter — that letter
+//       is real name content.
+//   2.  Repair the mandatory `<<` surname/given separator. ICAO TD3
+//       requires exactly one `<<` in the name field. If absent, look
+//       for a `<X` / `X<` pair (X in the confusables) anywhere in
+//       the name area and flip the lone letter to `<`. Do this once.
+//   3.  Repair lone artefacts inside the given-name run. Any
+//       confusable letter that sits between two `<` fillers (or
+//       between a `<` and the end of the trailing run) is treated as
+//       a misread filler. Real middle initials are preserved because
+//       they would either be a non-confusable letter (e.g. "A", "R")
+//       or be flanked by name letters rather than `<` on both sides.
+// ─────────────────────────────────────────────────────────────────────
+const FILLER_CONFUSABLES = "CKLITFE";
+
+function recoverLine1Name(l1: string): string {
+  const padded = l1.padEnd(44, "<").slice(0, 44);
+  const prefix = padded.slice(0, 5);
+  const name = padded.slice(5, 44).split("");
+
+  // Step 1: trailing-tail recovery.
+  for (let i = name.length - 1; i >= 0; i--) {
+    const c = name[i];
+    if (c === "<") continue;
+    if (FILLER_CONFUSABLES.includes(c)) {
+      name[i] = "<";
+      continue;
+    }
+    break;
+  }
+
+  // Step 2: ensure the `<<` separator exists. If a single confusable
+  // sits between the surname and given-name run, flip it once.
+  let joined = name.join("");
+  if (!joined.includes("<<")) {
+    // Prefer `<X` (artefact straight after surname).
+    let m = joined.match(/<([CKLITFE])/);
+    if (m) {
+      const idx = m.index!;
+      joined = joined.slice(0, idx + 1) + "<" + joined.slice(idx + 2);
+    } else {
+      m = joined.match(/([CKLITFE])</);
+      if (m) {
+        const idx = m.index!;
+        joined = joined.slice(0, idx) + "<" + joined.slice(idx + 1);
+      }
+    }
+  }
+
+  // Step 3: lone-artefact recovery inside the given-name run. Only
+  // touches confusables that have a `<` filler on at least one side
+  // AND are not part of a multi-letter token (i.e. truly isolated).
+  const arr = joined.split("");
+  for (let i = 0; i < arr.length; i++) {
+    const c = arr[i];
+    if (!FILLER_CONFUSABLES.includes(c)) continue;
+    const prev = i > 0 ? arr[i - 1] : "<";
+    const next = i < arr.length - 1 ? arr[i + 1] : "<";
+    // Isolated = both neighbours are fillers (or string edges).
+    if (prev === "<" && next === "<") {
+      arr[i] = "<";
+    }
+  }
+
+  return prefix + arr.join("");
+}
+
 /**
  * Extract the two MRZ lines from raw OCR text. Pads/truncates to 44 chars.
  */
@@ -168,7 +251,10 @@ export function extractMrzLines(text: string): [string, string] | null {
  * field's alpha chars or inside the alphanumeric passport-number zone.
  */
 function normalizeMrzLines(l1Raw: string, l2Raw: string): [string, string] {
-  const l1 = l1Raw.padEnd(44, '<').slice(0, 44);
+  const l1Pre = l1Raw.padEnd(44, '<').slice(0, 44);
+  // Run the MRZ Name Recovery stage on Line 1 ONLY, before any further
+  // per-zone normalisation. Line 2 is untouched.
+  const l1 = recoverLine1Name(l1Pre);
   const l2 = l2Raw.padEnd(44, '<').slice(0, 44);
 
   // Line 1: positions 0 (doc code "P"), 1 (subtype, alpha or "<"),
@@ -320,3 +406,4 @@ export function scoreLine2(line: string): number {
 }
 
 export { normalizeMrzLines };
+export { recoverLine1Name };
