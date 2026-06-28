@@ -50,6 +50,52 @@ export function binarize(source: HTMLCanvasElement, threshold = 150): HTMLCanvas
   return out;
 }
 
+/**
+ * Stronger preprocessing variant used as a fallback retry after a soft
+ * MRZ-read failure: grayscale + heavier contrast + 2x upscale + adaptive
+ * (windowed) threshold to handle low-contrast / hologram-laden scans.
+ */
+export function preprocessStrong(source: HTMLCanvasElement): HTMLCanvasElement {
+  const scale = 2;
+  const w = source.width * scale;
+  const h = source.height * scale;
+  const up = document.createElement('canvas');
+  up.width = w;
+  up.height = h;
+  const uctx = up.getContext('2d')!;
+  uctx.imageSmoothingEnabled = true;
+  uctx.imageSmoothingQuality = 'high';
+  uctx.drawImage(source, 0, 0, w, h);
+
+  const img = uctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const gray = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    gray[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  }
+  // Adaptive threshold via mean over a sliding 15px window (row-only — cheap).
+  const win = 15;
+  for (let y = 0; y < h; y++) {
+    let sum = 0;
+    for (let x = 0; x < win && x < w; x++) sum += gray[y * w + x];
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - Math.floor(win / 2));
+      const x1 = Math.min(w - 1, x + Math.floor(win / 2));
+      if (x > 0) {
+        if (x + Math.floor(win / 2) < w) sum += gray[y * w + x + Math.floor(win / 2)];
+        if (x - Math.floor(win / 2) - 1 >= 0) sum -= gray[y * w + x - Math.floor(win / 2) - 1];
+      }
+      const mean = sum / (x1 - x0 + 1);
+      const v = gray[y * w + x] < mean - 8 ? 0 : 255;
+      const k = (y * w + x) * 4;
+      d[k] = d[k + 1] = d[k + 2] = v;
+      d[k + 3] = 255;
+    }
+  }
+  uctx.putImageData(img, 0, 0);
+  return up;
+}
+
 export function cropCanvas(
   src: HTMLCanvasElement,
   x: number,
@@ -62,6 +108,52 @@ export function cropCanvas(
   c.height = h;
   c.getContext('2d')!.drawImage(src, x, y, w, h, 0, 0, w, h);
   return c;
+}
+
+/** Rotate a canvas by a multiple of 90deg without resampling losses. */
+export function rotateCanvas(src: HTMLCanvasElement, deg: 0 | 90 | 180 | 270): HTMLCanvasElement {
+  if (deg === 0) return src;
+  const out = document.createElement('canvas');
+  if (deg === 180) {
+    out.width = src.width;
+    out.height = src.height;
+  } else {
+    out.width = src.height;
+    out.height = src.width;
+  }
+  const ctx = out.getContext('2d')!;
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((deg * Math.PI) / 180);
+  ctx.drawImage(src, -src.width / 2, -src.height / 2);
+  return out;
+}
+
+/**
+ * Crop the MRZ band (bottom ~22% of the photo page) for a given orientation
+ * already applied. Heuristic but ICAO compliant: MRZ is anchored to the
+ * page's bottom edge.
+ */
+export function cropMrzBand(src: HTMLCanvasElement): HTMLCanvasElement {
+  const bandH = Math.round(src.height * 0.22);
+  const bandY = src.height - bandH;
+  return cropCanvas(src, 0, bandY, src.width, bandH);
+}
+
+/**
+ * Score how "MRZ-like" an OCR text is: ratio of `<` filler characters,
+ * presence of two long lines, and a leading "P" on the first line.
+ */
+export function mrzScore(text: string): number {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+/g, '').toUpperCase())
+    .filter((l) => l.length >= 30);
+  if (lines.length < 2) return 0;
+  const candidate = lines.slice(-2).join('');
+  const fillers = (candidate.match(/</g) || []).length;
+  const ratio = fillers / candidate.length;
+  const startsP = /^P/.test(lines[lines.length - 2]) ? 0.2 : 0;
+  return Math.min(1, ratio * 2.5 + startsP);
 }
 
 export function normalizeDate(raw: string): string {
