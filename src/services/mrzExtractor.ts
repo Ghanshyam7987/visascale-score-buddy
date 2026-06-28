@@ -89,6 +89,27 @@ export class MrzExtractor implements PassportExtractor {
     await this.worker.setParameters({
       tessedit_char_whitelist: MRZ_WHITELIST,
       tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+      // ── MRZ-font tuning ──
+      // Disable every Tesseract dictionary / language model. The English
+      // model otherwise treats long runs of ICAO filler `<` characters
+      // as "impossible" and silently rewrites them into the visually
+      // closest letters (K, C, L, I, T…), which is exactly the
+      // KESAR<DEVI<<<<  →  KKESARCDEVICKKK corruption seen on Indian
+      // passports. With every DAWG off Tesseract reports raw glyph
+      // shape only, preserving every `<` filler verbatim.
+      load_system_dawg: '0',
+      load_freq_dawg: '0',
+      load_unambig_dawg: '0',
+      load_punc_dawg: '0',
+      load_number_dawg: '0',
+      load_bigram_dawg: '0',
+      // Don't penalise non-dictionary words — MRZ is by definition
+      // never in any dictionary.
+      language_model_penalty_non_dict_word: '0',
+      language_model_penalty_non_freq_dict_word: '0',
+      // Keep the literal character grid — never merge / drop spaces
+      // between glyphs inside the MRZ line.
+      preserve_interword_spaces: '1',
     });
   }
 
