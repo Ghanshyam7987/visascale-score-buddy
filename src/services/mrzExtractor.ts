@@ -238,9 +238,21 @@ export class MrzExtractor implements PassportExtractor {
               enhanceMrz(stretched, 240),
               ...BIN_THRESHOLDS.map((t) => binarize(stretched, t)),
             ];
-            for (const v of l1Variants) {
+            const variantLabels = [
+              'enhanceMrz(240)',
+              ...BIN_THRESHOLDS.map((t) => `binarize(${t})`),
+            ];
+            for (let i = 0; i < l1Variants.length; i++) {
+              const v = l1Variants[i];
               if (signal?.aborted) throw new Error('aborted');
               const { text } = await this.ocrBand(v);
+              // ── DIAG: raw Line-1 OCR output, no cleaning, no parsing.
+              // Shows whether `<` fillers survive OCR or are misread as
+              // K/L/C BEFORE any downstream sanitisation runs.
+              // eslint-disable-next-line no-console
+              console.log(
+                `[MRZ L1 RAW] rot=${deg} band=${f} stretch=${stretch} variant=${variantLabels[i]} :: ${JSON.stringify(text)}`,
+              );
               harvestL1(text);
             }
           }
