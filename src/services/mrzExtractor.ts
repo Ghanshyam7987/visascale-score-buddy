@@ -218,7 +218,12 @@ export class MrzExtractor implements PassportExtractor {
               if (!best || score > best.score) {
                 best = { text, parsed, rotation: deg, score };
               }
-              if (parsed.fields) foundValid = true;
+              if (parsed.fields) {
+                foundValid = true;
+                // High-confidence checksum-valid read: stop immediately.
+                // Skip remaining variants/bands/orientations to save work.
+                if (confidence >= 80) break outer;
+              }
             }
           }
           // Once we have a checksum-valid read, keep scanning only the

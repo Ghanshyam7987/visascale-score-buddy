@@ -402,6 +402,7 @@ export default function PassportExtractor() {
                     <tr
                       key={row.id}
                       onClick={() => {
+                        if (isProcessing) return;
                         setSelectedId(row.id);
                         setRotation(0);
                         setZoom(1);
@@ -480,13 +481,15 @@ export default function PassportExtractor() {
               )}
             </div>
 
-            {selectedRow ? (
+            {selectedRow && !isProcessing ? (
               <>
                 <div className="overflow-hidden rounded border bg-muted/30 aspect-[4/3] flex items-center justify-center">
                   <img
                     src={selectedRow.imageUrl}
                     alt="Passport preview"
                     className="max-w-full max-h-full object-contain transition-transform"
+                    loading="lazy"
+                    decoding="async"
                     style={{
                       transform: `rotate(${rotation}deg) scale(${zoom})`,
                     }}
@@ -538,7 +541,9 @@ export default function PassportExtractor() {
               </>
             ) : (
               <p className="text-xs text-muted-foreground text-center py-8">
-                Click a row to preview that passport.
+                {isProcessing
+                  ? 'Preview is paused while OCR is running.'
+                  : 'Click a row to preview that passport.'}
               </p>
             )}
           </Card>
