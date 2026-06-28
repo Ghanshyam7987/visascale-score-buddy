@@ -325,6 +325,18 @@ export class MrzExtractor implements PassportExtractor {
       onStage?.('ocr_upper'); // stage kept for UI parity; no upper OCR in Phase 1.
       onStage?.('finished');
 
+      if (DEBUG) {
+        console.log('3) Best rotation chosen:', best?.rotation);
+        console.log('4) OCR attempts:', attempts.length);
+        // eslint-disable-next-line no-console
+        console.table(attempts.map((a) => ({ ...a, score: +a.score.toFixed(2) })));
+        console.log('5) Best OCR raw text:\n' + (best?.text ?? '(none)'));
+        console.log('6) Parsed MRZ fields:', best?.parsed.fields ?? null);
+        console.log('7) Checksums:', best?.parsed.raw?.checks ?? null);
+        console.log('   Top L1 candidates:', lineCands.l1.slice().sort((a, b) => b.score - a.score).slice(0, 5));
+        console.log('   Top L2 candidates:', lineCands.l2.slice().sort((a, b) => b.score - a.score).slice(0, 5));
+      }
+
       if (best?.parsed.fields) {
         const f = best.parsed.fields;
         const fields: Omit<ExtractedFields, 'status'> = {
@@ -337,13 +349,30 @@ export class MrzExtractor implements PassportExtractor {
           nationality: f.nationality,
           passportNumber: f.passportNumber,
         };
-        return { ...fields, status: computeStatus(fields, true) };
+        const out = { ...fields, status: computeStatus(fields, true) };
+        if (DEBUG) console.log('8) Final extracted fields:', out);
+        return out;
       }
 
       // Low-confidence read — emit blanks, flag for manual review.
       const blank = emptyFields();
-      return { ...blank, status: 'review' };
+      const out = { ...blank, status: 'review' as const };
+      if (DEBUG) {
+        console.warn('8) MRZ FAILED — Review Needed.', out);
+        if (dbgPanelEntry) {
+          const note = document.createElement('div');
+          note.style.cssText = 'color:#fca5a5;margin-top:4px;';
+          note.textContent = 'MRZ FAILED — best OCR text below:';
+          dbgPanelEntry.appendChild(note);
+          const pre = document.createElement('pre');
+          pre.style.cssText = 'white-space:pre-wrap;background:#020617;padding:4px;border-radius:4px;color:#fcd34d;margin:4px 0 0;';
+          pre.textContent = best?.text ?? '(no OCR output)';
+          dbgPanelEntry.appendChild(pre);
+        }
+      }
+      return out;
     } finally {
+      if (DEBUG) console.groupEnd();
       if (ownsUrl) URL.revokeObjectURL(url);
     }
   }
