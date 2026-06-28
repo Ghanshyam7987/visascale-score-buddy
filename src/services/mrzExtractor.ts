@@ -171,25 +171,20 @@ export class MrzExtractor implements PassportExtractor {
   }
 
   /**
-   * Normalise a single OCR-produced MRZ line: strip whitespace, keep every
-   * fragment longer than 5 characters, concatenate consecutive fragments,
-   * drop non-MRZ characters, upper-case, then pad/truncate to the ICAO 44-
+   * Normalise a single OCR-produced MRZ line: strip whitespace, drop
+   * non-MRZ characters, upper-case, then pad/truncate to the ICAO 44-
    * column width.
    */
   private cleanLine(text: string): string | null {
-    const fragments = text
+    const lines = text
       .split(/\r?\n/)
-      .map((l) => l.replace(/\s+/g, ''))
-      .filter((l) => l.length > 5);
-    if (!fragments.length) return null;
-
-    const merged = fragments
-      .join('')
-      .replace(/[^A-Z0-9<]/gi, '')
-      .toUpperCase();
-
-    if (merged.length < 20) return null;
-    return merged.padEnd(44, '<').slice(0, 44);
+      .map((l) => l.replace(/\s+/g, '').replace(/[^A-Z0-9<]/gi, '').toUpperCase())
+      .filter((l) => l.length >= 20);
+    if (!lines.length) return null;
+    // Pick the longest — Tesseract sometimes splits a single MRZ line
+    // into multiple short fragments.
+    lines.sort((a, b) => b.length - a.length);
+    return lines[0].padEnd(44, '<').slice(0, 44);
   }
 
   async extract(source: Blob | string, opts: ExtractOptions = {}): Promise<ExtractedFields> {
