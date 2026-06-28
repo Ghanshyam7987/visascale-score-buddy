@@ -25,7 +25,7 @@ import {
   PassportExtractor,
   computeStatus,
 } from '@/lib/passport/types';
-import { mrzScore } from '@/lib/passport/imageOps';
+import { enhanceMrz, mrzScore } from '@/lib/passport/imageOps';
 import {
   binarize,
   cropMrzBandAt,
@@ -82,30 +82,9 @@ export class MrzExtractor implements PassportExtractor {
 
   async init(): Promise<void> {
     if (this.worker) return;
-    // Try the MRZ-specific Tesseract language model (trained on OCR-B and
-    // the ICAO `<` filler glyph). Source: DoubangoTelecom/tesseractMRZ
-    // (tessdata_best/mrz.traineddata), served uncompressed via jsDelivr.
-    //
-    // tesseract.js v7 fetches `<lang>.traineddata.gz` from `langPath` by
-    // default. The DoubangoTelecom repo only ships the uncompressed
-    // `.traineddata` file (the `.gz` variant 404s), so we pass
-    // `gzip: false`. If the load still fails for any reason (network,
-    // version mismatch, option not honoured) we transparently fall back
-    // to the bundled `eng` model so the extractor never enters a
-    // permanent "Failed" state due to language initialization.
-    try {
-      this.worker = await createWorker('mrz', 1, {
-        langPath:
-          'https://cdn.jsdelivr.net/gh/DoubangoTelecom/tesseractMRZ@master/tessdata_best',
-        gzip: false,
-      } as any);
-    } catch (err) {
-      console.warn(
-        '[MRZ] mrz.traineddata failed to load, falling back to eng:',
-        err,
-      );
-      this.worker = await createWorker('eng');
-    }
+    // Stable configuration: use the bundled English Tesseract model.
+    // All accuracy improvements live in the preprocessing pipeline.
+    this.worker = await createWorker('eng');
     await this.worker.setParameters({
       tessedit_char_whitelist: MRZ_WHITELIST,
       tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
@@ -140,20 +119,29 @@ export class MrzExtractor implements PassportExtractor {
     }
   }
 
-  private async ocrBand(canvas: HTMLCanvasElement): Promise<string> {
+  private async ocrBand(
+    canvas: HTMLCanvasElement,
+  ): Promise<{ text: string; confidence: number }> {
     const w = this.worker!;
     const res = await w.recognize(canvas);
-    return res.data.text || '';
+    return {
+      text: res.data.text || '',
+      confidence: typeof res.data.confidence === 'number' ? res.data.confidence : 0,
+    };
   }
 
-  private scoreCandidate(text: string, parsed: StrictMrzResult): number {
+  private scoreCandidate(
+    text: string,
+    parsed: StrictMrzResult,
+    confidence = 0,
+  ): number {
     const raw = parsed.raw;
     const checksumScore = raw
       ? (raw.checks.passport ? 1 : 0) +
         (raw.checks.dob ? 1 : 0) +
         (raw.checks.expiry ? 1 : 0)
       : 0;
-    return checksumScore * 10 + mrzScore(text);
+    return checksumScore * 10 + mrzScore(text) + confidence / 200;
   }
 
   /**
@@ -208,17 +196,25 @@ export class MrzExtractor implements PassportExtractor {
           // whose MRZ font prints small relative to the page width.
           const rawBand = cropMrzBandAt(rotated, f);
           const band = rawBand.height < 140 ? upscale(rawBand, 2) : rawBand;
-          for (const t of BIN_THRESHOLDS) {
+          // Preprocessing variants — keep every `<` intact, just vary
+          // the binarisation strategy. We always include the new
+          // adaptive-threshold + sharpen pipeline alongside the legacy
+          // global-threshold sweep, then keep whichever OCR pass yields
+          // the best score (checksums + MRZ-likeness + confidence).
+          const variants: HTMLCanvasElement[] = [
+            enhanceMrz(band),
+            ...BIN_THRESHOLDS.map((t) => binarize(band, t)),
+          ];
+          for (const variant of variants) {
             if (signal?.aborted) throw new Error('aborted');
-            const bin = binarize(band, t);
-            const text = await this.ocrBand(bin);
+            const { text, confidence } = await this.ocrBand(variant);
             // Always harvest line candidates — even after a checksum-valid
             // hit, we keep collecting cleaner line-1s so the name-upgrade
             // pass below can replace OCR-garbled given names.
             this.harvestLines(text, lineCands.l1, lineCands.l2);
             if (!foundValid) {
               const parsed = parseStrictMrz(text);
-              const score = this.scoreCandidate(text, parsed);
+              const score = this.scoreCandidate(text, parsed, confidence);
               if (!best || score > best.score) {
                 best = { text, parsed, rotation: deg, score };
               }
@@ -243,9 +239,9 @@ export class MrzExtractor implements PassportExtractor {
           const rawBand = cropMrzBandAt(rotated, f);
           const band = rawBand.height < 140 ? upscale(rawBand, 2) : rawBand;
           const strong = preprocessStrong(band);
-          const text = await this.ocrBand(strong);
+          const { text, confidence } = await this.ocrBand(strong);
           const parsed = parseStrictMrz(text);
-          const score = this.scoreCandidate(text, parsed);
+          const score = this.scoreCandidate(text, parsed, confidence);
           if (!best || score > best.score) {
             best = { text, parsed, rotation: deg, score };
           }

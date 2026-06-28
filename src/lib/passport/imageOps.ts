@@ -158,6 +158,138 @@ export function upscale(src: HTMLCanvasElement, factor = 2): HTMLCanvasElement {
 }
 
 /**
+ * Resample a canvas to a target height (preserving aspect ratio) using
+ * high-quality bicubic-ish smoothing. MRZ-band OCR with Tesseract is
+ * most accurate when the per-line glyph height is ~30-40 px, which on a
+ * two-line MRZ band corresponds to a band height of roughly 110-160 px.
+ */
+export function scaleToHeight(src: HTMLCanvasElement, targetH: number): HTMLCanvasElement {
+  if (src.height === targetH) return src;
+  const ratio = targetH / src.height;
+  const out = document.createElement('canvas');
+  out.width = Math.round(src.width * ratio);
+  out.height = targetH;
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, out.width, out.height);
+  return out;
+}
+
+/**
+ * Unsharp-mask sharpener. Subtracts a 3x3 box-blurred copy from the
+ * source to crisp up MRZ glyph edges without halos. Operates on the
+ * grayscale-equivalent of each channel.
+ */
+export function sharpen(src: HTMLCanvasElement, amount = 0.6): HTMLCanvasElement {
+  const w = src.width;
+  const h = src.height;
+  const ctx = src.getContext('2d')!;
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const gray = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    gray[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  }
+  const blurred = new Uint8ClampedArray(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      let s = 0;
+      for (let yy = -1; yy <= 1; yy++) {
+        for (let xx = -1; xx <= 1; xx++) {
+          s += gray[(y + yy) * w + (x + xx)];
+        }
+      }
+      blurred[y * w + x] = s / 9;
+    }
+  }
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const octx = out.getContext('2d')!;
+  const oimg = octx.createImageData(w, h);
+  const od = oimg.data;
+  for (let i = 0, j = 0; j < gray.length; i += 4, j++) {
+    const v = gray[j] + amount * (gray[j] - blurred[j]);
+    const c = v < 0 ? 0 : v > 255 ? 255 : v;
+    od[i] = od[i + 1] = od[i + 2] = c;
+    od[i + 3] = 255;
+  }
+  octx.putImageData(oimg, 0, 0);
+  return out;
+}
+
+/**
+ * 2-D adaptive threshold using an integral-image mean over a square
+ * window. Far more robust to uneven lighting / shadows on phone scans
+ * than a row-only sweep, while still preserving every `<` filler glyph.
+ */
+export function adaptiveThreshold2D(
+  src: HTMLCanvasElement,
+  window = 25,
+  bias = 10,
+): HTMLCanvasElement {
+  const w = src.width;
+  const h = src.height;
+  const ctx = src.getContext('2d')!;
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const gray = new Float64Array(w * h);
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    gray[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  }
+  // Integral image
+  const ii = new Float64Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += gray[y * w + x];
+      ii[y * w + x] = (y > 0 ? ii[(y - 1) * w + x] : 0) + row;
+    }
+  }
+  const r = Math.floor(window / 2);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r);
+      const y0 = Math.max(0, y - r);
+      const x1 = Math.min(w - 1, x + r);
+      const y1 = Math.min(h - 1, y + r);
+      const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const sum =
+        ii[y1 * w + x1] -
+        (x0 > 0 ? ii[y1 * w + (x0 - 1)] : 0) -
+        (y0 > 0 ? ii[(y0 - 1) * w + x1] : 0) +
+        (x0 > 0 && y0 > 0 ? ii[(y0 - 1) * w + (x0 - 1)] : 0);
+      const mean = sum / area;
+      const v = gray[y * w + x] < mean - bias ? 0 : 255;
+      const k = (y * w + x) * 4;
+      d[k] = d[k + 1] = d[k + 2] = v;
+      d[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // Copy to a fresh canvas so we don't mutate the caller's canvas object.
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  out.getContext('2d')!.drawImage(src, 0, 0);
+  return out;
+}
+
+/**
+ * Full MRZ preprocessing pipeline:
+ *  1. Scale band to ~140 px (≈ 30-40 px x-height per line).
+ *  2. Sharpen with a light unsharp mask.
+ *  3. Local contrast / adaptive threshold with a 25 px window.
+ * Returns a binarised canvas suitable for direct Tesseract OCR.
+ */
+export function enhanceMrz(src: HTMLCanvasElement, targetH = 140): HTMLCanvasElement {
+  const scaled = src.height < targetH ? scaleToHeight(src, targetH) : src;
+  const sharp = sharpen(scaled, 0.6);
+  return adaptiveThreshold2D(sharp, 25, 10);
+}
+
+/**
  * Score how "MRZ-like" an OCR text is: ratio of `<` filler characters,
  * presence of two long lines, and a leading "P" on the first line.
  */
