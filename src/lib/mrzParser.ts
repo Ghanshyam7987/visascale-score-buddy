@@ -99,10 +99,18 @@ export function parseMrz(text: string): MRZResult | null {
 
   // Line 1: P<ISSUER<SURNAME<<GIVEN<NAMES
   const nationality = line1.slice(2, 5).replace(/</g, "");
-  const namePart = line1.slice(5);
-  const [surnameRaw, givenRaw = ""] = namePart.split("<<");
-  const surname = sanitizeName(surnameRaw.replace(/</g, " "));
-  const givenName = sanitizeName(givenRaw.replace(/</g, " "));
+  // Extract the name portion from MRZ Line 1 (ignoring P<IND)
+  const mrzNamePart = line1.substring(5);
+  // Tesseract often misreads << as C, K, L, or spaces. Normalize the separator:
+  const normalizedMrz = mrzNamePart.replace(/[\sCKL]*<+[\sCKL]*/gi, "<<");
+  // Split by the normalized << separator
+  const nameParts = normalizedMrz.split("<<");
+  let surname = nameParts[0] ? nameParts[0].replace(/[^A-Z]/gi, "") : "";
+  let givenName = nameParts[1] ? nameParts[1].replace(/</g, " ").trim() : "";
+  // STRIP STRAY LEADING C, K, or L FROM GIVEN NAME (the 'CUSHA' bug fix)
+  givenName = givenName.replace(/^[CKL](?=[A-Z]{2,})/i, "");
+  surname = sanitizeName(surname);
+  givenName = sanitizeName(givenName);
 
   // Line 2 positions
   const passportNumber = line2.slice(0, 9).replace(/</g, "");
