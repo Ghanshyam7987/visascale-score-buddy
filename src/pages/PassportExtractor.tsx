@@ -6,16 +6,11 @@ import {
   CheckCircle2,
   Download,
   Eraser,
-  Maximize2,
-  RotateCcw,
-  RotateCw,
   ShieldCheck,
   Trash2,
   Upload,
   X,
   XCircle,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -99,8 +94,6 @@ export default function PassportExtractor() {
   }>({ index: 0, total: 0, stage: 'idle', etaSeconds: null });
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [rotation, setRotation] = useState(0);
-  const [zoom, setZoom] = useState(1);
   const [editingCell, setEditingCell] = useState<{ id: string; key: ApplicantField } | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -233,8 +226,6 @@ export default function PassportExtractor() {
     rows.forEach((r) => URL.revokeObjectURL(r.imageUrl));
     setRows([]);
     setSelectedId(null);
-    setRotation(0);
-    setZoom(1);
     setEditingCell(null);
     setConfirmClear(false);
     toast.success('Session cleared.');
@@ -404,8 +395,6 @@ export default function PassportExtractor() {
                       onClick={() => {
                         if (isProcessing) return;
                         setSelectedId(row.id);
-                        setRotation(0);
-                        setZoom(1);
                       }}
                       className={`border-t cursor-pointer hover:bg-muted/30 ${
                         selectedId === row.id ? 'bg-muted/50' : ''
@@ -487,55 +476,14 @@ export default function PassportExtractor() {
                   <img
                     src={selectedRow.imageUrl}
                     alt="Passport preview"
-                    className="max-w-full max-h-full object-contain transition-transform"
+                    className="max-w-full max-h-full object-contain"
                     loading="lazy"
                     decoding="async"
-                    style={{
-                      transform: `rotate(${rotation}deg) scale(${zoom})`,
-                    }}
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-1 mt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setRotation((r) => (r - 90 + 360) % 360)}
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setRotation((r) => (r + 90) % 360)}
-                  >
-                    <RotateCw className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setRotation(0);
-                      setZoom(1);
-                    }}
-                  >
+                <div className="mt-2 flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setSelectedId(null)}>
                     Reset
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setZoom((z) => Math.min(z + 0.25, 4))}
-                  >
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setZoom((z) => Math.max(z - 0.25, 0.25))}
-                  >
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setZoom(1)}>
-                    <Maximize2 className="h-4 w-4" />
                   </Button>
                 </div>
               </>
