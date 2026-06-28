@@ -82,7 +82,22 @@ export function formatGivenName(name: string): string {
   if (!name) return "";
   const upper = name.toUpperCase();
   const noTrailingFillers = upper.replace(/<+$/g, "");
-  return noTrailingFillers.replace(/<+/g, " ").replace(/\s+/g, " ").trim();
+  const spaced = noTrailingFillers.replace(/<+/g, " ").replace(/\s+/g, " ").trim();
+  // Strip trailing OCR noise originating from misread ICAO filler chars.
+  // Such noise consists of tokens built only from the confusion set {K,L,C}
+  // (e.g. KL, LK, LL, KK, LC, CL, CK, KC and repeats thereof). Real name
+  // tokens almost never consist solely of these three letters, so we drop
+  // trailing tokens of length >= 2 made exclusively from this set.
+  const tokens = spaced.split(" ");
+  while (tokens.length > 0) {
+    const last = tokens[tokens.length - 1];
+    if (last.length >= 2 && /^[KLC]+$/.test(last)) {
+      tokens.pop();
+    } else {
+      break;
+    }
+  }
+  return tokens.join(" ").trim();
 }
 
 function formatDate(yymmdd: string, futureHint = false): string {
