@@ -1,30 +1,29 @@
-import { createWorker, PSM, Worker as TesseractWorker } from 'tesseract.js';
-import { parseMrz, sanitizeName, MRZResult } from '@/lib/mrzParser';
-import {
-  ExtractOptions,
-  ExtractedFields,
-  PassportExtractor,
-  computeStatus,
-} from './types';
-import {
-  binarize,
-  cropCanvas,
-  cropMrzBand,
-  mrzScore,
-  normalizeDate,
-  preprocessStrong,
-  renderToCanvas,
-  rotateCanvas,
-  validPlace,
-} from './imageOps';
+import { MrzExtractor } from '@/services/mrzExtractor';
+import { ExtractOptions, ExtractedFields, PassportExtractor } from './types';
 
 /**
- * Default main-thread extractor. Wraps the existing Tesseract pipeline behind
- * the PassportExtractor contract so the page never imports tesseract directly.
- * A WorkerPoolExtractor implementing the same interface will replace this
- * for true parallel OCR in the next phase.
+ * Phase-1 surgical replacement: `TesseractExtractor` is kept as a thin
+ * adapter so `WorkerPoolExtractor`, `pipeline.ts`, and the UI continue
+ * importing from the exact same path with the exact same contract.
+ *
+ * All real extraction logic now lives in `src/services/mrzExtractor.ts`
+ * (strict MRZ-only, ICAO 9303 TD3, full checksum gating).
  */
-const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
+export class TesseractExtractor implements PassportExtractor {
+  private impl = new MrzExtractor();
+
+  init(): Promise<void> {
+    return this.impl.init();
+  }
+
+  dispose(): Promise<void> {
+    return this.impl.dispose();
+  }
+
+  extract(source: Blob | string, opts?: ExtractOptions): Promise<ExtractedFields> {
+    return this.impl.extract(source, opts);
+  }
+}
 
 /**
  * Run MRZ OCR on a pre-cropped MRZ-band canvas using the strict whitelist
