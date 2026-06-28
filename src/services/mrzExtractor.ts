@@ -248,7 +248,10 @@ export class MrzExtractor implements PassportExtractor {
         for (const f of BAND_FRACTIONS) {
           if (signal?.aborted) throw new Error('aborted');
           const rawBand = cropMrzBandAt(rotated, f);
-          const band = rawBand.height < 140 ? upscale(rawBand, 2) : rawBand;
+          const band =
+            rawBand.height < 220
+              ? upscale(rawBand, Math.max(2, Math.ceil(220 / Math.max(1, rawBand.height))))
+              : rawBand;
           const strong = preprocessStrong(band);
           const { text, confidence } = await this.ocrBand(strong);
           const parsed = parseStrictMrz(text);
