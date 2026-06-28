@@ -182,6 +182,14 @@ async function extractFromCanvas(
     }
   }
 
+  // PLACE OF ISSUE FIX: regex fallback against the raw upper-zone text
+  if (!placeOfIssue) {
+    const poiMatch = upperText.match(/Place of Issue[\s\S]*?([A-Z]{3,})/i);
+    if (poiMatch) {
+      placeOfIssue = validPlace(poiMatch[1]) || poiMatch[1].toUpperCase();
+    }
+  }
+
   // --- Date elimination strategy ---
   // Collect all DD/MM/YYYY (and short variants) from the upper text.
   const dateMatches = Array.from(upperText.matchAll(/\b(\d{2}[\/\-\.\s]\d{2}[\/\-\.\s]\d{2,4})\b/g))
