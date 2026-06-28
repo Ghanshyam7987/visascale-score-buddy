@@ -109,6 +109,15 @@ export class MrzExtractor implements PassportExtractor {
       // Keep the literal character grid — never merge / drop spaces
       // between glyphs inside the MRZ line.
       preserve_interword_spaces: '1',
+      // Disable character chopping / association — both can cause
+      // Tesseract to split a `<` chevron into two strokes and then
+      // re-glue them into an alphabetic letter. Keeping each glyph
+      // atomic preserves filler recognition.
+      chop_enable: '0',
+      wordrec_enable_assoc: '0',
+      // MRZ scans are always printed dark-on-light; skip Tesseract's
+      // auto-invert pass which can degrade thin diagonal strokes.
+      tessedit_do_invert: '0',
     });
   }
 
@@ -195,7 +204,13 @@ export class MrzExtractor implements PassportExtractor {
           // This is the single biggest win on older Indian passports
           // whose MRZ font prints small relative to the page width.
           const rawBand = cropMrzBandAt(rotated, f);
-          const band = rawBand.height < 140 ? upscale(rawBand, 2) : rawBand;
+          // Upscale aggressively for narrow bands — the chevron filler
+          // glyph needs ~40-50 px of vertical resolution to avoid being
+          // misclassified as K / C / L by the OCR-B classifier.
+          const band =
+            rawBand.height < 220
+              ? upscale(rawBand, Math.max(2, Math.ceil(220 / Math.max(1, rawBand.height))))
+              : rawBand;
           // Preprocessing variants — keep every `<` intact, just vary
           // the binarisation strategy. We always include the new
           // adaptive-threshold + sharpen pipeline alongside the legacy
