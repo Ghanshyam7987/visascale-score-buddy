@@ -8,9 +8,10 @@ import {
   preprocessStrong,
   renderToCanvas,
   rotateCanvas,
+  upscale,
 } from '@/lib/passport/imageOps';
 
-export { renderToCanvas, rotateCanvas, binarize, preprocessStrong, cropCanvas };
+export { renderToCanvas, rotateCanvas, binarize, preprocessStrong, cropCanvas, upscale };
 
 /**
  * Crop a band anchored to the bottom of the page covering `fraction` of

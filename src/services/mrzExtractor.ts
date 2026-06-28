@@ -32,6 +32,7 @@ import {
   preprocessStrong,
   renderToCanvas,
   rotateCanvas,
+  upscale,
 } from './imagePreprocessor';
 import { parseStrictMrz, StrictMrzResult } from './mrzParser';
 import {
@@ -46,10 +47,10 @@ const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
 // Widen the band sweep so we tolerate different scan margins / scan
 // resolutions. Each fraction is the height of the bottom band as a
 // fraction of the rotated page height.
-const BAND_FRACTIONS = [0.18, 0.22, 0.26, 0.30, 0.35, 0.42] as const;
+const BAND_FRACTIONS = [0.16, 0.20, 0.24, 0.28, 0.32, 0.38, 0.44] as const;
 // Multiple binarisation thresholds — bright scans and shadowy phone
 // captures need very different cutoffs.
-const BIN_THRESHOLDS = [110, 130, 150, 170] as const;
+const BIN_THRESHOLDS = [95, 115, 135, 155, 175, 195] as const;
 const ORIENTATIONS: ReadonlyArray<0 | 90 | 180 | 270> = [0, 180, 90, 270];
 
 function emptyFields(): Omit<ExtractedFields, 'status'> {
@@ -157,7 +158,11 @@ export class MrzExtractor implements PassportExtractor {
         const rotated = rotateCanvas(base, deg);
         for (const f of BAND_FRACTIONS) {
           if (signal?.aborted) throw new Error('aborted');
-          const band = cropMrzBandAt(rotated, f);
+          // Upscale narrow bands so Tesseract sees ~30-40px x-height.
+          // This is the single biggest win on older Indian passports
+          // whose MRZ font prints small relative to the page width.
+          const rawBand = cropMrzBandAt(rotated, f);
+          const band = rawBand.height < 140 ? upscale(rawBand, 2) : rawBand;
           for (const t of BIN_THRESHOLDS) {
             if (signal?.aborted) throw new Error('aborted');
             const bin = binarize(band, t);
@@ -183,7 +188,8 @@ export class MrzExtractor implements PassportExtractor {
         const rotated = rotateCanvas(base, deg);
         for (const f of BAND_FRACTIONS) {
           if (signal?.aborted) throw new Error('aborted');
-          const band = cropMrzBandAt(rotated, f);
+          const rawBand = cropMrzBandAt(rotated, f);
+          const band = rawBand.height < 140 ? upscale(rawBand, 2) : rawBand;
           const strong = preprocessStrong(band);
           const text = await this.ocrBand(strong);
           const parsed = parseStrictMrz(text);

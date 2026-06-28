@@ -140,6 +140,24 @@ export function cropMrzBand(src: HTMLCanvasElement): HTMLCanvasElement {
 }
 
 /**
+ * Upscale a canvas by an integer factor with high-quality smoothing.
+ * Tesseract is consistently more accurate on MRZ bands when the x-height
+ * is closer to 30-40px, which on many phone scans means we need a 2x
+ * blow-up before binarisation.
+ */
+export function upscale(src: HTMLCanvasElement, factor = 2): HTMLCanvasElement {
+  if (factor <= 1) return src;
+  const out = document.createElement('canvas');
+  out.width = src.width * factor;
+  out.height = src.height * factor;
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, out.width, out.height);
+  return out;
+}
+
+/**
  * Score how "MRZ-like" an OCR text is: ratio of `<` filler characters,
  * presence of two long lines, and a leading "P" on the first line.
  */
