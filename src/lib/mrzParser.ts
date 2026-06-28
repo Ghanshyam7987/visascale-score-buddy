@@ -282,6 +282,39 @@ function recoverLine1Name(l1: string): string {
     candidates.push(arr.join(""));
   }
 
+  // Candidate E: severely-damaged MRZ where every `<` was misread as
+  // a confusable letter, leaving no `<<` separator at all. Generate a
+  // variant for each adjacent confusable pair (`XX`) by forcing it to
+  // `<<`, then run trailing-tail + lone-artefact recovery on top. The
+  // scorer below picks the variant that best matches the ICAO shape.
+  if (!original.includes("<<")) {
+    for (let i = 0; i < original.length - 1; i++) {
+      if (!isConf(original[i]) || !isConf(original[i + 1])) continue;
+      const arr = original.split("");
+      arr[i] = "<";
+      arr[i + 1] = "<";
+      // Cascade: lone-artefact pass.
+      for (let j = 0; j < arr.length; j++) {
+        if (!isConf(arr[j])) continue;
+        const prev = j > 0 ? arr[j - 1] : "<";
+        const next = j < arr.length - 1 ? arr[j + 1] : "<";
+        if (prev === "<" && next === "<") arr[j] = "<";
+      }
+      // Cascade: trailing-tail pass.
+      for (let j = arr.length - 1; j >= 0; j--) {
+        const c = arr[j];
+        if (c === "<") continue;
+        const right = j < arr.length - 1 ? arr[j + 1] : "<";
+        if (isConf(c) && right === "<") {
+          arr[j] = "<";
+          continue;
+        }
+        break;
+      }
+      candidates.push(arr.join(""));
+    }
+  }
+
   let best = original;
   let bestScore = scoreNameField(original);
   for (const c of candidates) {
