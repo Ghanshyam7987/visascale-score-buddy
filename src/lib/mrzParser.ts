@@ -312,7 +312,7 @@ export function parseNormalizedLines(lines: [string, string]): MRZResult | null 
   const compositeOk = !!compChk?.valid;
 
   const surname = sanitizeName((last?.value || '').replace(/</g, ' '));
-  const givenName = sanitizeName((first?.value || '').replace(/</g, ' '));
+  const givenName = formatGivenName(first?.value || '');
   const sexRaw = (sex?.value || '').toString().toUpperCase();
   // The `mrz` library normalises sex to "MALE"/"FEMALE"; older callers
   // and our downstream UI expect a single-letter code or "Male"/"Female".
