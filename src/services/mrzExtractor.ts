@@ -166,20 +166,6 @@ export class MrzExtractor implements PassportExtractor {
     return lines[0].padEnd(44, '<').slice(0, 44);
   }
 
-  private scoreCandidate(
-    text: string,
-    parsed: StrictMrzResult,
-    confidence = 0,
-  ): number {
-    const raw = parsed.raw;
-    const checksumScore = raw
-      ? (raw.checks.passport ? 1 : 0) +
-        (raw.checks.dob ? 1 : 0) +
-        (raw.checks.expiry ? 1 : 0)
-      : 0;
-    return checksumScore * 10 + mrzScore(text) + confidence / 200;
-  }
-
   async extract(source: Blob | string, opts: ExtractOptions = {}): Promise<ExtractedFields> {
     if (!this.worker) await this.init();
     const { onStage, rotationDeg = 0, signal } = opts;
