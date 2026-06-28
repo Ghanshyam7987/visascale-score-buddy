@@ -232,7 +232,14 @@ export function parseNormalizedLines(lines: [string, string]): MRZResult | null 
 
   const surname = sanitizeName((last?.value || '').replace(/</g, ' '));
   const givenName = sanitizeName((first?.value || '').replace(/</g, ' '));
-  const sexValue = (sex?.value || '').toUpperCase();
+  const sexRaw = (sex?.value || '').toString().toUpperCase();
+  // The `mrz` library normalises sex to "MALE"/"FEMALE"; older callers
+  // and our downstream UI expect a single-letter code or "Male"/"Female".
+  const sexLetter = sexRaw.startsWith('M')
+    ? 'M'
+    : sexRaw.startsWith('F')
+      ? 'F'
+      : '';
 
   // Library returns birthDate / expirationDate as YYMMDD strings.
   const dobRaw = dobF?.value || '';
@@ -249,7 +256,7 @@ export function parseNormalizedLines(lines: [string, string]): MRZResult | null 
   return {
     surname,
     givenName,
-    gender: sexValue === 'M' ? 'Male' : sexValue === 'F' ? 'Female' : '',
+    gender: sexLetter === 'M' ? 'Male' : sexLetter === 'F' ? 'Female' : '',
     dateOfBirth: formatDate(dobRaw, false),
     dateOfExpiry: formatDate(expRaw, true),
     nationality: (nat?.value || issuing?.value || '').toUpperCase(),
