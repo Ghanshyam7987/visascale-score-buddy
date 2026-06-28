@@ -47,16 +47,17 @@ export interface MRZResult {
 
 export function sanitizeName(name: string): string {
   if (!name) return "";
-  // Strict ICAO 9303 name cleanup:
-  //  - `<` is the spec separator → single space
-  //  - drop anything that isn't an A–Z letter or whitespace (no OCR junk
-  //    such as digits, `|`, `*`, stray punctuation ever leaks in)
-  //  - collapse 3+ identical consecutive letters to 2 (common OCR
-  //    duplication artefact, e.g. "RAAAJESH" → "RAAJESH" → "RAJESH"
-  //    after a second pass below)
-  //  - drop empty tokens and absurdly long tokens (>30 chars = junk)
-  const cleaned = name
-    .toUpperCase()
+  // Strict ICAO 9303 name cleanup. Conservative — NEVER drop a valid
+  // alphabetic character:
+  //  - strip trailing `<` fillers (ICAO right-pad)
+  //  - convert any remaining internal `<` (token separators) to spaces
+  //  - drop characters that aren't A–Z or whitespace (digits / `|` / `*`
+  //    OCR junk only)
+  //  - collapse runs of whitespace and drop empty / absurdly long tokens
+  // No letter-deduplication, no trailing-letter trimming — those
+  // destroy valid names like "DEVI" → "DEV" or "AANYA" → "ANYA".
+  const trimmedFillers = name.toUpperCase().replace(/<+$/g, "");
+  const cleaned = trimmedFillers
     .replace(/</g, " ")
     .replace(/[^A-Z\s]/g, "")
     .replace(/\s+/g, " ")
@@ -64,8 +65,6 @@ export function sanitizeName(name: string): string {
   if (!cleaned) return "";
   const tokens = cleaned
     .split(" ")
-    .map((w) => w.replace(/(.)\1{2,}/g, "$1$1"))
-    .map((w) => w.replace(/(.)\1+$/g, "$1"))
     .filter((w) => w.length > 0 && w.length <= 30);
   return tokens.join(" ");
 }
