@@ -53,6 +53,9 @@ const BAND_FRACTIONS = [0.16, 0.20, 0.24, 0.28, 0.32, 0.38, 0.44] as const;
 const BIN_THRESHOLDS = [95, 115, 135, 155, 175, 195] as const;
 const ORIENTATIONS: ReadonlyArray<0 | 90 | 180 | 270> = [0, 180, 90, 270];
 
+// ── TEMPORARY DEBUG FLAG — remove after diagnosis ──
+const DEBUG_MRZ = true;
+
 function emptyFields(): Omit<ExtractedFields, 'status'> {
   return {
     surname: '',
