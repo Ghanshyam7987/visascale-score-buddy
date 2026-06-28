@@ -11,9 +11,6 @@ export interface Applicant {
   givenName: string;
   gender: string;
   dateOfBirth: string;
-  placeOfBirth: string;
-  dateOfIssue: string;
-  placeOfIssue: string;
   dateOfExpiry: string;
   nationality: string;
   passportNumber: string;
@@ -28,9 +25,6 @@ export type ExtractedFields = Pick<
   | 'givenName'
   | 'gender'
   | 'dateOfBirth'
-  | 'placeOfBirth'
-  | 'dateOfIssue'
-  | 'placeOfIssue'
   | 'dateOfExpiry'
   | 'nationality'
   | 'passportNumber'
@@ -80,9 +74,6 @@ export const REQUIRED_FIELDS: ApplicantField[] = [
   'givenName',
   'gender',
   'dateOfBirth',
-  'placeOfBirth',
-  'dateOfIssue',
-  'placeOfIssue',
   'dateOfExpiry',
   'nationality',
   'passportNumber',
@@ -101,8 +92,7 @@ export function computeStatus(
   }
   if (
     !DATE_RE.test(data.dateOfBirth) ||
-    !DATE_RE.test(data.dateOfExpiry) ||
-    !DATE_RE.test(data.dateOfIssue)
+    !DATE_RE.test(data.dateOfExpiry)
   ) {
     return 'review';
   }
