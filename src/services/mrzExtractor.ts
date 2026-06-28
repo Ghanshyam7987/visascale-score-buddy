@@ -52,63 +52,6 @@ const BAND_FRACTIONS = [0.18, 0.22, 0.26, 0.30, 0.35, 0.42] as const;
 const BIN_THRESHOLDS = [110, 130, 150, 170] as const;
 const ORIENTATIONS: ReadonlyArray<0 | 90 | 180 | 270> = [0, 180, 90, 270];
 
-// ─── DEBUG MODE (temporary) ──────────────────────────────────────────────
-// Exposes every intermediate MRZ step to the console + a floating panel.
-// Does NOT change the extraction algorithm or any parser.
-const DEBUG = true;
-
-function debugPanel(): HTMLDivElement | null {
-  if (typeof document === 'undefined') return null;
-  let el = document.getElementById('mrz-debug-panel') as HTMLDivElement | null;
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'mrz-debug-panel';
-    el.style.cssText =
-      'position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;max-height:42vh;overflow:auto;background:rgba(15,23,42,0.95);color:#e2e8f0;font:11px/1.3 monospace;padding:8px;border:1px solid #334155;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.4);';
-    const header = document.createElement('div');
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
-    header.innerHTML = '<strong>MRZ Debug</strong>';
-    const clr = document.createElement('button');
-    clr.textContent = 'Clear';
-    clr.style.cssText = 'background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:4px;padding:2px 8px;cursor:pointer;';
-    clr.onclick = () => { el!.querySelectorAll('.mrz-debug-entry').forEach((n) => n.remove()); };
-    header.appendChild(clr);
-    el.appendChild(header);
-    document.body.appendChild(el);
-  }
-  return el;
-}
-
-function appendDebug(title: string): HTMLDivElement | null {
-  const panel = debugPanel();
-  if (!panel) return null;
-  const wrap = document.createElement('div');
-  wrap.className = 'mrz-debug-entry';
-  wrap.style.cssText = 'border-top:1px dashed #334155;padding:6px 0;margin-top:6px;';
-  const h = document.createElement('div');
-  h.textContent = title;
-  h.style.cssText = 'color:#22d3ee;margin-bottom:4px;';
-  wrap.appendChild(h);
-  panel.appendChild(wrap);
-  return wrap;
-}
-
-function canvasToThumb(c: HTMLCanvasElement, label: string): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:inline-block;margin:2px 6px 2px 0;vertical-align:top;';
-  const cap = document.createElement('div');
-  cap.textContent = label;
-  cap.style.cssText = 'font-size:10px;color:#94a3b8;margin-bottom:2px;max-width:380px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-  const img = document.createElement('img');
-  img.src = c.toDataURL('image/png');
-  img.style.cssText = 'max-width:380px;max-height:80px;display:block;background:#fff;image-rendering:pixelated;border:1px solid #475569;';
-  wrap.appendChild(cap);
-  wrap.appendChild(img);
-  return wrap;
-}
-
-let DEBUG_FILE_COUNTER = 0;
-
 function emptyFields(): Omit<ExtractedFields, 'status'> {
   return {
     surname: '',
@@ -201,22 +144,9 @@ export class MrzExtractor implements PassportExtractor {
     const url = typeof source === 'string' ? source : URL.createObjectURL(source);
     const ownsUrl = typeof source !== 'string';
 
-    const fileId = ++DEBUG_FILE_COUNTER;
-    const dbgPanelEntry = DEBUG ? appendDebug(`File #${fileId}`) : null;
-    const attempts: Array<{
-      rotation: number; fraction: number; threshold: number;
-      P: boolean; D: boolean; E: boolean; score: number;
-    }> = [];
-    if (DEBUG) console.group(`[MRZ Debug] file #${fileId}`);
-
     try {
       onStage?.('preparing');
       const base = await renderToCanvas(url, rotationDeg);
-      if (DEBUG) {
-        console.log('1) Original image size:', base.width, 'x', base.height);
-        console.log('2) Rotation arg (deg):', rotationDeg);
-        dbgPanelEntry?.appendChild(canvasToThumb(base, `original ${base.width}x${base.height}`));
-      }
       if (signal?.aborted) throw new Error('aborted');
 
       onStage?.('detecting_mrz');
@@ -231,28 +161,12 @@ export class MrzExtractor implements PassportExtractor {
         for (const f of BAND_FRACTIONS) {
           if (signal?.aborted) throw new Error('aborted');
           const band = cropMrzBandAt(rotated, f);
-          const bandH = Math.round(rotated.height * Math.max(0.1, Math.min(0.5, f)));
-          const bandY = rotated.height - bandH;
           for (const t of BIN_THRESHOLDS) {
             if (signal?.aborted) throw new Error('aborted');
             const bin = binarize(band, t);
             const text = await this.ocrBand(bin);
             const parsed = parseStrictMrz(text);
             const score = this.scoreCandidate(text, parsed);
-            if (DEBUG) {
-              const P = parsed.raw?.checks.passport ?? false;
-              const D = parsed.raw?.checks.dob ?? false;
-              const E = parsed.raw?.checks.expiry ?? false;
-              attempts.push({ rotation: deg, fraction: f, threshold: t, P, D, E, score });
-              if (t === 130) {
-                dbgPanelEntry?.appendChild(
-                  canvasToThumb(
-                    bin,
-                    `rot ${deg}° frac ${f} thr ${t} | x=0 y=${bandY} w=${rotated.width} h=${bandH} | P=${P} D=${D} E=${E} s=${score.toFixed(2)}`,
-                  ),
-                );
-              }
-            }
             if (!best || score > best.score) {
               best = { text, parsed, rotation: deg, score };
             }
@@ -277,15 +191,6 @@ export class MrzExtractor implements PassportExtractor {
           const text = await this.ocrBand(strong);
           const parsed = parseStrictMrz(text);
           const score = this.scoreCandidate(text, parsed);
-          if (DEBUG) {
-            const P = parsed.raw?.checks.passport ?? false;
-            const D = parsed.raw?.checks.dob ?? false;
-            const E = parsed.raw?.checks.expiry ?? false;
-            attempts.push({ rotation: deg, fraction: f, threshold: -1, P, D, E, score });
-            dbgPanelEntry?.appendChild(
-              canvasToThumb(strong, `STRONG rot ${deg}° frac ${f} | P=${P} D=${D} E=${E} s=${score.toFixed(2)}`),
-            );
-          }
           if (!best || score > best.score) {
             best = { text, parsed, rotation: deg, score };
           }
@@ -325,18 +230,6 @@ export class MrzExtractor implements PassportExtractor {
       onStage?.('ocr_upper'); // stage kept for UI parity; no upper OCR in Phase 1.
       onStage?.('finished');
 
-      if (DEBUG) {
-        console.log('3) Best rotation chosen:', best?.rotation);
-        console.log('4) OCR attempts:', attempts.length);
-        // eslint-disable-next-line no-console
-        console.table(attempts.map((a) => ({ ...a, score: +a.score.toFixed(2) })));
-        console.log('5) Best OCR raw text:\n' + (best?.text ?? '(none)'));
-        console.log('6) Parsed MRZ fields:', best?.parsed.fields ?? null);
-        console.log('7) Checksums:', best?.parsed.raw?.checks ?? null);
-        console.log('   Top L1 candidates:', lineCands.l1.slice().sort((a, b) => b.score - a.score).slice(0, 5));
-        console.log('   Top L2 candidates:', lineCands.l2.slice().sort((a, b) => b.score - a.score).slice(0, 5));
-      }
-
       if (best?.parsed.fields) {
         const f = best.parsed.fields;
         const fields: Omit<ExtractedFields, 'status'> = {
@@ -350,29 +243,14 @@ export class MrzExtractor implements PassportExtractor {
           passportNumber: f.passportNumber,
         };
         const out = { ...fields, status: computeStatus(fields, true) };
-        if (DEBUG) console.log('8) Final extracted fields:', out);
         return out;
       }
 
       // Low-confidence read — emit blanks, flag for manual review.
       const blank = emptyFields();
       const out = { ...blank, status: 'review' as const };
-      if (DEBUG) {
-        console.warn('8) MRZ FAILED — Review Needed.', out);
-        if (dbgPanelEntry) {
-          const note = document.createElement('div');
-          note.style.cssText = 'color:#fca5a5;margin-top:4px;';
-          note.textContent = 'MRZ FAILED — best OCR text below:';
-          dbgPanelEntry.appendChild(note);
-          const pre = document.createElement('pre');
-          pre.style.cssText = 'white-space:pre-wrap;background:#020617;padding:4px;border-radius:4px;color:#fcd34d;margin:4px 0 0;';
-          pre.textContent = best?.text ?? '(no OCR output)';
-          dbgPanelEntry.appendChild(pre);
-        }
-      }
       return out;
     } finally {
-      if (DEBUG) console.groupEnd();
       if (ownsUrl) URL.revokeObjectURL(url);
     }
   }
