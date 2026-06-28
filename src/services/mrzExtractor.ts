@@ -212,25 +212,14 @@ export class MrzExtractor implements PassportExtractor {
             // hit, we keep collecting cleaner line-1s so the name-upgrade
             // pass below can replace OCR-garbled given names.
             this.harvestLines(text, lineCands.l1, lineCands.l2);
-            if (!foundValid) {
-              const parsed = parseStrictMrz(text);
-              const score = this.scoreCandidate(text, parsed, confidence);
-              if (!best || score > best.score) {
-                best = { text, parsed, rotation: deg, score };
-              }
-              if (parsed.fields) {
-                foundValid = true;
-                // High-confidence checksum-valid read: stop immediately.
-                // Skip remaining variants/bands/orientations to save work.
-                if (confidence >= 80) break outer;
-              }
+            const parsed = parseStrictMrz(text);
+            const score = this.scoreCandidate(text, parsed, confidence);
+            if (!best || score > best.score) {
+              best = { text, parsed, rotation: deg, score };
             }
+            if (parsed.fields) foundValid = true;
           }
-          // Once we have a checksum-valid read, keep scanning only the
-          // current orientation's remaining bands (cheap, name-quality
-          // boost) and then exit. Avoids the full 4× orientation sweep.
         }
-        if (foundValid) break outer;
       }
 
       onStage?.('reading_mrz');
