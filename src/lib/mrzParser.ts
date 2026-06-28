@@ -99,16 +99,35 @@ export function parseMrz(text: string): MRZResult | null {
 
   // Line 1: P<ISSUER<SURNAME<<GIVEN<NAMES
   const nationality = line1.slice(2, 5).replace(/</g, "");
-  // Extract the name portion from MRZ Line 1 (ignoring P<IND)
-  const mrzNamePart = line1.substring(5);
-  // Tesseract often misreads << as C, K, L, or spaces. Normalize the separator:
-  const normalizedMrz = mrzNamePart.replace(/[\sCKL]*<+[\sCKL]*/gi, "<<");
-  // Split by the normalized << separator
-  const nameParts = normalizedMrz.split("<<");
-  let surname = nameParts[0] ? nameParts[0].replace(/[^A-Z]/gi, "") : "";
-  let givenName = nameParts[1] ? nameParts[1].replace(/</g, " ").trim() : "";
-  // STRIP STRAY LEADING C, K, or L FROM GIVEN NAME (the 'CUSHA' bug fix)
-  givenName = givenName.replace(/^[CKL](?=[A-Z]{2,})/i, "");
+  // STRICT INDIAN MRZ PARSING
+  // Clean up Tesseract hallucinations ONLY where brackets are expected
+  // Convert stray C, K, L, S back to < ONLY if they are surrounded by other brackets or spaces
+  const mrzLine1 = line1;
+  let cleanMrzLine1 = mrzLine1.replace(/\s+/g, "<");
+  cleanMrzLine1 = cleanMrzLine1.replace(/<+[CKLS]+<+/gi, "<<<");
+
+  // Indian passports always start with P<IND (or P[something]IND)
+  const indMatch = cleanMrzLine1.match(/P.IND([A-Z<]+)/i);
+
+  let surname = "";
+  let givenName = "";
+
+  if (indMatch && indMatch[1]) {
+    const rawNameString = indMatch[1]; // Everything after P<IND
+
+    // Find the double bracket separator '<<' or its hallucinated variants like '<C', '<K'
+    const splitNames = rawNameString.split(/(?:<<|<C|<K|<L|<S)+/i);
+
+    if (splitNames.length > 0) {
+      // Surname is everything before the first separator. Keep ONLY A-Z.
+      surname = splitNames[0].replace(/[^A-Z]/gi, "");
+    }
+    if (splitNames.length > 1) {
+      // Given name is the rest. Replace single '<' with space, keep A-Z and spaces.
+      const rawGiven = splitNames.slice(1).join("<");
+      givenName = rawGiven.replace(/</g, " ").replace(/[^A-Z\s]/gi, "").trim();
+    }
+  }
   surname = sanitizeName(surname);
   givenName = sanitizeName(givenName);
 
