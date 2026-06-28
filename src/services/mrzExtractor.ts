@@ -25,7 +25,7 @@ import {
   PassportExtractor,
   computeStatus,
 } from '@/lib/passport/types';
-import { enhanceMrz, mrzScore } from '@/lib/passport/imageOps';
+import { enhanceMrz } from '@/lib/passport/imageOps';
 import {
   binarize,
   cropMrzBandAt,
@@ -38,7 +38,6 @@ import {
 } from './imagePreprocessor';
 import { parseStrictMrz, StrictMrzResult } from './mrzParser';
 import {
-  extractMrzLines,
   normalizeMrzLines,
   parseNormalizedLines,
   scoreLine1,
