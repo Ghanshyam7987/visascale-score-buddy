@@ -364,9 +364,21 @@ export function scoreLine1(line: string): number {
   if (l[0] === 'P') s += 3;
   if (/^[A-Z<]$/.test(l[1])) s += 0.5;
   if (/^[A-Z]{3}$/.test(l.slice(2, 5))) s += 2;
-  if (l.slice(5, 44).includes('<<')) s += 3;
-  const fillers = (l.match(/</g) || []).length;
-  s += Math.min(2, fillers / 10);
+  const zone = l.slice(5, 44);
+  // Mandatory surname/given-name separator.
+  if (zone.includes('<<')) s += 3;
+  // Overall filler density — proxy for "OCR read the `<` chars correctly".
+  const fillers = (zone.match(/</g) || []).length;
+  s += Math.min(4, fillers / 5);
+  // Trailing filler tail — the single strongest structural signal of
+  // a clean OCR pass. ICAO TD3 ALWAYS pads the name zone with `<`s on
+  // the right; OCR passes that preserve that tail are structurally
+  // correct, passes that "see" letters at the end are not.
+  const tail = zone.match(/<+$/)?.[0].length ?? 0;
+  s += Math.min(8, tail / 2);
+  // Penalise any alphabetic character sitting AFTER a long internal
+  // filler run — ICAO-impossible, pure OCR noise.
+  if (/<{3,}[A-Z]/.test(zone)) s -= 4;
   return s;
 }
 
