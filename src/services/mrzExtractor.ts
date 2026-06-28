@@ -201,9 +201,22 @@ export class MrzExtractor implements PassportExtractor {
     const url = typeof source === 'string' ? source : URL.createObjectURL(source);
     const ownsUrl = typeof source !== 'string';
 
+    const fileId = ++DEBUG_FILE_COUNTER;
+    const dbgPanelEntry = DEBUG ? appendDebug(`File #${fileId}`) : null;
+    const attempts: Array<{
+      rotation: number; fraction: number; threshold: number;
+      P: boolean; D: boolean; E: boolean; score: number;
+    }> = [];
+    if (DEBUG) console.group(`[MRZ Debug] file #${fileId}`);
+
     try {
       onStage?.('preparing');
       const base = await renderToCanvas(url, rotationDeg);
+      if (DEBUG) {
+        console.log('1) Original image size:', base.width, 'x', base.height);
+        console.log('2) Rotation arg (deg):', rotationDeg);
+        dbgPanelEntry?.appendChild(canvasToThumb(base, `original ${base.width}x${base.height}`));
+      }
       if (signal?.aborted) throw new Error('aborted');
 
       onStage?.('detecting_mrz');
@@ -218,12 +231,28 @@ export class MrzExtractor implements PassportExtractor {
         for (const f of BAND_FRACTIONS) {
           if (signal?.aborted) throw new Error('aborted');
           const band = cropMrzBandAt(rotated, f);
+          const bandH = Math.round(rotated.height * Math.max(0.1, Math.min(0.5, f)));
+          const bandY = rotated.height - bandH;
           for (const t of BIN_THRESHOLDS) {
             if (signal?.aborted) throw new Error('aborted');
             const bin = binarize(band, t);
             const text = await this.ocrBand(bin);
             const parsed = parseStrictMrz(text);
             const score = this.scoreCandidate(text, parsed);
+            if (DEBUG) {
+              const P = parsed.raw?.checks.passport ?? false;
+              const D = parsed.raw?.checks.dob ?? false;
+              const E = parsed.raw?.checks.expiry ?? false;
+              attempts.push({ rotation: deg, fraction: f, threshold: t, P, D, E, score });
+              if (t === 130) {
+                dbgPanelEntry?.appendChild(
+                  canvasToThumb(
+                    bin,
+                    `rot ${deg}° frac ${f} thr ${t} | x=0 y=${bandY} w=${rotated.width} h=${bandH} | P=${P} D=${D} E=${E} s=${score.toFixed(2)}`,
+                  ),
+                );
+              }
+            }
             if (!best || score > best.score) {
               best = { text, parsed, rotation: deg, score };
             }
@@ -248,6 +277,15 @@ export class MrzExtractor implements PassportExtractor {
           const text = await this.ocrBand(strong);
           const parsed = parseStrictMrz(text);
           const score = this.scoreCandidate(text, parsed);
+          if (DEBUG) {
+            const P = parsed.raw?.checks.passport ?? false;
+            const D = parsed.raw?.checks.dob ?? false;
+            const E = parsed.raw?.checks.expiry ?? false;
+            attempts.push({ rotation: deg, fraction: f, threshold: -1, P, D, E, score });
+            dbgPanelEntry?.appendChild(
+              canvasToThumb(strong, `STRONG rot ${deg}° frac ${f} | P=${P} D=${D} E=${E} s=${score.toFixed(2)}`),
+            );
+          }
           if (!best || score > best.score) {
             best = { text, parsed, rotation: deg, score };
           }
