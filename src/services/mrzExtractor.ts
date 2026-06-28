@@ -153,6 +153,7 @@ export class MrzExtractor implements PassportExtractor {
         l1: [],
         l2: [],
       };
+      let foundValid = false;
 
       outer: for (const deg of ORIENTATIONS) {
         const rotated = rotateCanvas(base, deg);
@@ -167,17 +168,24 @@ export class MrzExtractor implements PassportExtractor {
             if (signal?.aborted) throw new Error('aborted');
             const bin = binarize(band, t);
             const text = await this.ocrBand(bin);
-            const parsed = parseStrictMrz(text);
-            const score = this.scoreCandidate(text, parsed);
-            if (!best || score > best.score) {
-              best = { text, parsed, rotation: deg, score };
-            }
+            // Always harvest line candidates — even after a checksum-valid
+            // hit, we keep collecting cleaner line-1s so the name-upgrade
+            // pass below can replace OCR-garbled given names.
             this.harvestLines(text, lineCands.l1, lineCands.l2);
-            // Early exit only when ALL three checksums pass — partial
-            // parses still benefit from line-mixing below.
-            if (parsed.fields) break outer;
+            if (!foundValid) {
+              const parsed = parseStrictMrz(text);
+              const score = this.scoreCandidate(text, parsed);
+              if (!best || score > best.score) {
+                best = { text, parsed, rotation: deg, score };
+              }
+              if (parsed.fields) foundValid = true;
+            }
           }
+          // Once we have a checksum-valid read, keep scanning only the
+          // current orientation's remaining bands (cheap, name-quality
+          // boost) and then exit. Avoids the full 4× orientation sweep.
         }
+        if (foundValid) break outer;
       }
 
       onStage?.('reading_mrz');
@@ -226,6 +234,41 @@ export class MrzExtractor implements PassportExtractor {
             }
           }
           if (best?.parsed.fields) break;
+        }
+      }
+
+      // ─── Name-upgrade pass: when we already have a checksum-valid
+      // candidate but the OCR happened to misread `<` fillers in the
+      // name field as letters (e.g. `KESAR<DEVI` → `KKESARCDEVICK`),
+      // swap in the best harvested line-1 (highest filler/structure
+      // score) paired against the winning line-2. We only accept the
+      // replacement if it still validates against the same passport/
+      // DOB/expiry checksums AND yields a strictly cleaner name field
+      // (more `<` fillers in positions 5-43).
+      if (best?.parsed.fields && lineCands.l1.length) {
+        const winLines = extractMrzLines(best.text);
+        if (winLines) {
+          const fillerCount = (s: string) => (s.match(/</g) || []).length;
+          const currentName = winLines[0].slice(5, 44);
+          const currentFillers = fillerCount(currentName);
+          lineCands.l1.sort((a, b) => b.score - a.score);
+          for (const c of lineCands.l1.slice(0, 10)) {
+            const candName = c.line.slice(5, 44);
+            if (fillerCount(candName) <= currentFillers) continue;
+            const [n1, n2] = normalizeMrzLines(c.line, winLines[1]);
+            const strict = parseStrictMrz(`${n1}\n${n2}`);
+            if (
+              strict.fields &&
+              strict.fields.passportNumber === best.parsed.fields.passportNumber &&
+              strict.fields.dateOfBirth === best.parsed.fields.dateOfBirth &&
+              strict.fields.dateOfExpiry === best.parsed.fields.dateOfExpiry &&
+              strict.fields.surname &&
+              strict.fields.givenName
+            ) {
+              best = { ...best, parsed: strict, text: `${n1}\n${n2}` };
+              break;
+            }
+          }
         }
       }
 
