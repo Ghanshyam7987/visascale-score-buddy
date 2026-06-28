@@ -47,10 +47,10 @@ const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
 // Widen the band sweep so we tolerate different scan margins / scan
 // resolutions. Each fraction is the height of the bottom band as a
 // fraction of the rotated page height.
-const BAND_FRACTIONS = [0.16, 0.20, 0.24, 0.28, 0.32, 0.38, 0.44] as const;
+const BAND_FRACTIONS = [0.20, 0.28, 0.38] as const;
 // Multiple binarisation thresholds — bright scans and shadowy phone
 // captures need very different cutoffs.
-const BIN_THRESHOLDS = [95, 115, 135, 155, 175, 195] as const;
+const BIN_THRESHOLDS = [115, 155, 195] as const;
 const ORIENTATIONS: ReadonlyArray<0 | 90 | 180 | 270> = [0, 180, 90, 270];
 
 function emptyFields(): Omit<ExtractedFields, 'status'> {
@@ -219,7 +219,9 @@ export class MrzExtractor implements PassportExtractor {
             }
             if (parsed.fields) foundValid = true;
           }
+          if (foundValid) break;
         }
+        if (foundValid) break outer;
       }
 
       onStage?.('reading_mrz');
