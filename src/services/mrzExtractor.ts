@@ -53,9 +53,6 @@ const BAND_FRACTIONS = [0.16, 0.20, 0.24, 0.28, 0.32, 0.38, 0.44] as const;
 const BIN_THRESHOLDS = [95, 115, 135, 155, 175, 195] as const;
 const ORIENTATIONS: ReadonlyArray<0 | 90 | 180 | 270> = [0, 180, 90, 270];
 
-// ── TEMPORARY DEBUG FLAG — remove after diagnosis ──
-const DEBUG_MRZ = true;
-
 function emptyFields(): Omit<ExtractedFields, 'status'> {
   return {
     surname: '',
@@ -89,6 +86,27 @@ export class MrzExtractor implements PassportExtractor {
     await this.worker.setParameters({
       tessedit_char_whitelist: MRZ_WHITELIST,
       tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+      // ── MRZ-font tuning ──
+      // Disable every Tesseract dictionary / language model. The English
+      // model otherwise treats long runs of ICAO filler `<` characters
+      // as "impossible" and silently rewrites them into the visually
+      // closest letters (K, C, L, I, T…), which is exactly the
+      // KESAR<DEVI<<<<  →  KKESARCDEVICKKK corruption seen on Indian
+      // passports. With every DAWG off Tesseract reports raw glyph
+      // shape only, preserving every `<` filler verbatim.
+      load_system_dawg: '0',
+      load_freq_dawg: '0',
+      load_unambig_dawg: '0',
+      load_punc_dawg: '0',
+      load_number_dawg: '0',
+      load_bigram_dawg: '0',
+      // Don't penalise non-dictionary words — MRZ is by definition
+      // never in any dictionary.
+      language_model_penalty_non_dict_word: '0',
+      language_model_penalty_non_freq_dict_word: '0',
+      // Keep the literal character grid — never merge / drop spaces
+      // between glyphs inside the MRZ line.
+      preserve_interword_spaces: '1',
     });
   }
 
@@ -281,19 +299,6 @@ export class MrzExtractor implements PassportExtractor {
 
       if (best?.parsed.fields) {
         const f = best.parsed.fields;
-        if (DEBUG_MRZ) {
-          const winLines = extractMrzLines(best.text);
-          const rawL1 = winLines ? winLines[0] : '';
-          const rawL2 = winLines ? winLines[1] : '';
-          // eslint-disable-next-line no-console
-          console.log('[MRZ DEBUG] 1. Raw OCR MRZ Line 1:', JSON.stringify(rawL1));
-          // eslint-disable-next-line no-console
-          console.log('[MRZ DEBUG] 2. Raw OCR MRZ Line 2:', JSON.stringify(rawL2));
-          // eslint-disable-next-line no-console
-          console.log('[MRZ DEBUG] 3. ICAO parser surname:', JSON.stringify(f.surname));
-          // eslint-disable-next-line no-console
-          console.log('[MRZ DEBUG] 4. ICAO parser givenName:', JSON.stringify(f.givenName));
-        }
         const fields: Omit<ExtractedFields, 'status'> = {
           ...emptyFields(),
           surname: f.surname,
@@ -305,10 +310,6 @@ export class MrzExtractor implements PassportExtractor {
           passportNumber: f.passportNumber,
         };
         const out = { ...fields, status: computeStatus(fields, true) };
-        if (DEBUG_MRZ) {
-          // eslint-disable-next-line no-console
-          console.log('[MRZ DEBUG] 7. Final value rendered in Given Name column:', JSON.stringify(out.givenName));
-        }
         return out;
       }
 

@@ -82,13 +82,7 @@ export function formatGivenName(name: string): string {
   if (!name) return "";
   const upper = name.toUpperCase();
   const noTrailingFillers = upper.replace(/<+$/g, "");
-  const result = noTrailingFillers.replace(/<+/g, " ").replace(/\s+/g, " ").trim();
-  // ── TEMPORARY DEBUG — remove after diagnosis ──
-  // eslint-disable-next-line no-console
-  console.log('[MRZ DEBUG] 5. formatGivenName() input:', JSON.stringify(name));
-  // eslint-disable-next-line no-console
-  console.log('[MRZ DEBUG] 6. formatGivenName() output:', JSON.stringify(result));
-  return result;
+  return noTrailingFillers.replace(/<+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function formatDate(yymmdd: string, futureHint = false): string {
