@@ -52,6 +52,63 @@ const BAND_FRACTIONS = [0.18, 0.22, 0.26, 0.30, 0.35, 0.42] as const;
 const BIN_THRESHOLDS = [110, 130, 150, 170] as const;
 const ORIENTATIONS: ReadonlyArray<0 | 90 | 180 | 270> = [0, 180, 90, 270];
 
+// ─── DEBUG MODE (temporary) ──────────────────────────────────────────────
+// Exposes every intermediate MRZ step to the console + a floating panel.
+// Does NOT change the extraction algorithm or any parser.
+const DEBUG = true;
+
+function debugPanel(): HTMLDivElement | null {
+  if (typeof document === 'undefined') return null;
+  let el = document.getElementById('mrz-debug-panel') as HTMLDivElement | null;
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'mrz-debug-panel';
+    el.style.cssText =
+      'position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;max-height:42vh;overflow:auto;background:rgba(15,23,42,0.95);color:#e2e8f0;font:11px/1.3 monospace;padding:8px;border:1px solid #334155;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.4);';
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;';
+    header.innerHTML = '<strong>MRZ Debug</strong>';
+    const clr = document.createElement('button');
+    clr.textContent = 'Clear';
+    clr.style.cssText = 'background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:4px;padding:2px 8px;cursor:pointer;';
+    clr.onclick = () => { el!.querySelectorAll('.mrz-debug-entry').forEach((n) => n.remove()); };
+    header.appendChild(clr);
+    el.appendChild(header);
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function appendDebug(title: string): HTMLDivElement | null {
+  const panel = debugPanel();
+  if (!panel) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'mrz-debug-entry';
+  wrap.style.cssText = 'border-top:1px dashed #334155;padding:6px 0;margin-top:6px;';
+  const h = document.createElement('div');
+  h.textContent = title;
+  h.style.cssText = 'color:#22d3ee;margin-bottom:4px;';
+  wrap.appendChild(h);
+  panel.appendChild(wrap);
+  return wrap;
+}
+
+function canvasToThumb(c: HTMLCanvasElement, label: string): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:inline-block;margin:2px 6px 2px 0;vertical-align:top;';
+  const cap = document.createElement('div');
+  cap.textContent = label;
+  cap.style.cssText = 'font-size:10px;color:#94a3b8;margin-bottom:2px;max-width:380px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  const img = document.createElement('img');
+  img.src = c.toDataURL('image/png');
+  img.style.cssText = 'max-width:380px;max-height:80px;display:block;background:#fff;image-rendering:pixelated;border:1px solid #475569;';
+  wrap.appendChild(cap);
+  wrap.appendChild(img);
+  return wrap;
+}
+
+let DEBUG_FILE_COUNTER = 0;
+
 function emptyFields(): Omit<ExtractedFields, 'status'> {
   return {
     surname: '',
