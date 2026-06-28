@@ -34,9 +34,22 @@ import {
   rotateCanvas,
 } from './imagePreprocessor';
 import { parseStrictMrz, StrictMrzResult } from './mrzParser';
+import {
+  extractMrzLines,
+  normalizeMrzLines,
+  parseNormalizedLines,
+  scoreLine1,
+  scoreLine2,
+} from '@/lib/mrzParser';
 
 const MRZ_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
-const BAND_FRACTIONS = [0.22, 0.28, 0.35] as const;
+// Widen the band sweep so we tolerate different scan margins / scan
+// resolutions. Each fraction is the height of the bottom band as a
+// fraction of the rotated page height.
+const BAND_FRACTIONS = [0.18, 0.22, 0.26, 0.30, 0.35, 0.42] as const;
+// Multiple binarisation thresholds — bright scans and shadowy phone
+// captures need very different cutoffs.
+const BIN_THRESHOLDS = [110, 130, 150, 170] as const;
 const ORIENTATIONS: ReadonlyArray<0 | 90 | 180 | 270> = [0, 180, 90, 270];
 
 function emptyFields(): Omit<ExtractedFields, 'status'> {
@@ -58,6 +71,11 @@ interface Candidate {
   text: string;
   parsed: StrictMrzResult;
   rotation: 0 | 90 | 180 | 270;
+  score: number;
+}
+
+interface LineCandidate {
+  line: string;
   score: number;
 }
 
@@ -96,6 +114,29 @@ export class MrzExtractor implements PassportExtractor {
     return checksumScore * 10 + mrzScore(text);
   }
 
+  /**
+   * Pull every plausible MRZ-shaped line out of a chunk of OCR output
+   * (>=30 chars, padded/truncated to 44) and score each as a line-1 or
+   * line-2 candidate. Lets us mix-and-match lines across OCR passes.
+   */
+  private harvestLines(
+    text: string,
+    bestL1: LineCandidate[],
+    bestL2: LineCandidate[],
+  ) {
+    const raw = text
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\s+/g, '').replace(/[^A-Z0-9<]/gi, '').toUpperCase())
+      .filter((l) => l.length >= 30)
+      .map((l) => l.padEnd(44, '<').slice(0, 44));
+    for (const l of raw) {
+      const s1 = scoreLine1(l);
+      if (s1 >= 3) bestL1.push({ line: l, score: s1 });
+      const s2 = scoreLine2(l);
+      if (s2 >= 5) bestL2.push({ line: l, score: s2 });
+    }
+  }
+
   async extract(source: Blob | string, opts: ExtractOptions = {}): Promise<ExtractedFields> {
     if (!this.worker) await this.init();
     const { onStage, rotationDeg = 0, signal } = opts;
@@ -110,21 +151,30 @@ export class MrzExtractor implements PassportExtractor {
 
       onStage?.('detecting_mrz');
       let best: Candidate | null = null;
+      const lineCands: { l1: LineCandidate[]; l2: LineCandidate[] } = {
+        l1: [],
+        l2: [],
+      };
 
       outer: for (const deg of ORIENTATIONS) {
         const rotated = rotateCanvas(base, deg);
         for (const f of BAND_FRACTIONS) {
           if (signal?.aborted) throw new Error('aborted');
           const band = cropMrzBandAt(rotated, f);
-          const bin = binarize(band, 130);
-          const text = await this.ocrBand(bin);
-          const parsed = parseStrictMrz(text);
-          const score = this.scoreCandidate(text, parsed);
-          if (!best || score > best.score) {
-            best = { text, parsed, rotation: deg, score };
+          for (const t of BIN_THRESHOLDS) {
+            if (signal?.aborted) throw new Error('aborted');
+            const bin = binarize(band, t);
+            const text = await this.ocrBand(bin);
+            const parsed = parseStrictMrz(text);
+            const score = this.scoreCandidate(text, parsed);
+            if (!best || score > best.score) {
+              best = { text, parsed, rotation: deg, score };
+            }
+            this.harvestLines(text, lineCands.l1, lineCands.l2);
+            // Early exit only when ALL three checksums pass — partial
+            // parses still benefit from line-mixing below.
+            if (parsed.fields) break outer;
           }
-          // Early exit on a fully-valid parse.
-          if (parsed.fields) break outer;
         }
       }
 
@@ -144,7 +194,35 @@ export class MrzExtractor implements PassportExtractor {
           if (!best || score > best.score) {
             best = { text, parsed, rotation: deg, score };
           }
+          this.harvestLines(text, lineCands.l1, lineCands.l2);
           if (parsed.fields) break;
+        }
+      }
+
+      // ─── Cross-pass line mixing: pair the best line-1 with the best
+      // line-2 from any pass and re-parse. This rescues cases where the
+      // top half of the MRZ was best-read at one threshold while the
+      // bottom half was best-read at another.
+      if (!best?.parsed.fields && lineCands.l1.length && lineCands.l2.length) {
+        lineCands.l1.sort((a, b) => b.score - a.score);
+        lineCands.l2.sort((a, b) => b.score - a.score);
+        const top1 = lineCands.l1.slice(0, 5);
+        const top2 = lineCands.l2.slice(0, 5);
+        for (const a of top1) {
+          for (const b of top2) {
+            const [n1, n2] = normalizeMrzLines(a.line, b.line);
+            const parsed = parseNormalizedLines([n1, n2]);
+            if (parsed && parsed.checks.passport && parsed.checks.dob && parsed.checks.expiry) {
+              // Synthesise a Candidate from the mixed pair.
+              const text = `${n1}\n${n2}`;
+              const strict = parseStrictMrz(text);
+              if (strict.fields) {
+                best = { text, parsed: strict, rotation: best?.rotation ?? 0, score: 1000 };
+                break;
+              }
+            }
+          }
+          if (best?.parsed.fields) break;
         }
       }
 
