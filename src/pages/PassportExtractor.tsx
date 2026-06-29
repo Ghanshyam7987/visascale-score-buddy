@@ -5,13 +5,17 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Upload, X, ScanFace, FileImage, Loader2 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
-import mrzTrainedDataAsset from '@/assets/mrz.traineddata.asset.json';
 
-// MRZ / OCR-B trained model bundled with the project and served from our
-// asset CDN. The traineddata is shipped uncompressed (no .gz), so Tesseract.js
-// is told to skip gzip decoding via `gzip: false`.
-const MRZ_TRAINEDDATA_URL = mrzTrainedDataAsset.url;
-const MRZ_LANG_PATH = MRZ_TRAINEDDATA_URL.replace(/\/mrz\.traineddata$/, '');
+// MRZ / OCR-B trained model bundled locally under `public/tessdata`.
+// IMPORTANT: Tesseract.js v7 uses the integer (tessdata_fast) LSTM engine.
+// Float (tessdata_best) models trigger a wasm runtime error:
+//   "missing function: _ZN9tesseract13DotProductSSEEPKfS1_i"
+// because the wasm build lacks the SSE DotProduct intrinsic used by
+// float models. We therefore ship the tessdata_fast variant of the
+// Doubango MRZ traineddata, which is compatible with tesseract.js@^7.
+// The file is uncompressed (no .gz), so we pass `gzip: false`.
+const MRZ_TRAINEDDATA_URL = '/tessdata/mrz.traineddata';
+const MRZ_LANG_PATH = '/tessdata';
 
 type MrzModelLoadFailure = {
   url: string;
