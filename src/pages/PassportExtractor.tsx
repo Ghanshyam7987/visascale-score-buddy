@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Upload, X, ScanFace, FileImage, Loader2 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
-import mrzTrainedDataAsset from '../../public/tessdata/mrz.traineddata.asset.json';
+import mrzTrainedDataAsset from '@/assets/mrz.traineddata.asset.json';
 
 // MRZ / OCR-B trained model bundled with the project and served from our
 // asset CDN. The traineddata is shipped uncompressed (no .gz), so Tesseract.js
