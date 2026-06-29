@@ -10,11 +10,45 @@ import Tesseract from 'tesseract.js';
 // Falls back to the default English model when this cannot be loaded.
 const MRZ_LANG_PATH =
   'https://raw.githubusercontent.com/DoubangoTelecom/tesseractMRZ/master/tessdata_best';
+const MRZ_TRAINEDDATA_URL = `${MRZ_LANG_PATH}/mrz.traineddata.gz`;
+
+type MrzModelLoadFailure = {
+  url: string;
+  httpStatus: string;
+  networkError: string;
+  corsError: string;
+  reason: string;
+  stack: string;
+};
+
+const getErrorMessage = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
+
+const getErrorStack = (err: unknown) =>
+  err instanceof Error ? (err.stack || err.message) : String(err);
+
+async function probeMrzModelUrl(): Promise<Pick<MrzModelLoadFailure, 'httpStatus' | 'networkError' | 'corsError'>> {
+  try {
+    const response = await fetch(MRZ_TRAINEDDATA_URL, { method: 'HEAD', cache: 'no-store' });
+    return {
+      httpStatus: `${response.status} ${response.statusText}`.trim(),
+      networkError: 'none',
+      corsError: 'none',
+    };
+  } catch (err) {
+    const message = getErrorMessage(err);
+    return {
+      httpStatus: 'unavailable',
+      networkError: message,
+      corsError: err instanceof TypeError ? message : 'none',
+    };
+  }
+}
 
 async function recognizeMrz(
   input: string,
   onProgress: (p: number) => void,
-): Promise<{ text: string; modelUsed: 'mrz' | 'eng' }> {
+): Promise<{ text: string; modelUsed: 'mrz' | 'eng'; modelLoadFailure: MrzModelLoadFailure | null }> {
   const baseOptions = {
     tessedit_pageseg_mode: '6',
     tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
@@ -27,15 +61,34 @@ async function recognizeMrz(
   };
 
   // Try the MRZ / OCR-B model first.
+  let modelLoadFailure: MrzModelLoadFailure | null = null;
   try {
     const r = await Tesseract.recognize(input, 'mrz', {
       logger,
+      errorHandler: (err: unknown) => {
+        console.error('MRZ traineddata worker error:', err);
+      },
       langPath: MRZ_LANG_PATH,
       ...baseOptions,
     } as never);
-    return { text: r.data.text ?? '', modelUsed: 'mrz' };
+    return { text: r.data.text ?? '', modelUsed: 'mrz', modelLoadFailure: null };
   } catch (err) {
+    const probe = await probeMrzModelUrl();
+    modelLoadFailure = {
+      url: MRZ_TRAINEDDATA_URL,
+      httpStatus: probe.httpStatus,
+      networkError: probe.networkError,
+      corsError: probe.corsError,
+      reason: getErrorMessage(err),
+      stack: getErrorStack(err),
+    };
     console.warn('MRZ traineddata unavailable, falling back to eng:', err);
+    console.error('MRZ model load failed diagnostics:', modelLoadFailure);
+    console.error('MRZ model requested URL:', modelLoadFailure.url);
+    console.error('MRZ model HTTP status:', modelLoadFailure.httpStatus);
+    console.error('MRZ model network error:', modelLoadFailure.networkError);
+    console.error('MRZ model CORS error:', modelLoadFailure.corsError);
+    console.error('MRZ model exception stack:', modelLoadFailure.stack);
   }
 
   // Fallback to default English model.
@@ -43,7 +96,7 @@ async function recognizeMrz(
     logger,
     ...baseOptions,
   } as never);
-  return { text: r.data.text ?? '', modelUsed: 'eng' };
+  return { text: r.data.text ?? '', modelUsed: 'eng', modelLoadFailure };
 }
 
 // Preprocess the bottom 25% of the passport image (MRZ band):
@@ -140,6 +193,7 @@ const PassportExtractor = () => {
   const [ocrText, setOcrText] = useState<string | null>(null);
   const [mrzText, setMrzText] = useState<string | null>(null);
   const [mrzModel, setMrzModel] = useState<'mrz' | 'eng' | null>(null);
+  const [mrzModelLoadFailure, setMrzModelLoadFailure] = useState<MrzModelLoadFailure | null>(null);
   const [fullError, setFullError] = useState<string | null>(null);
   const [mrzError, setMrzError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -158,6 +212,7 @@ const PassportExtractor = () => {
     setOcrText(null);
     setMrzText(null);
     setMrzModel(null);
+    setMrzModelLoadFailure(null);
     setFullError(null);
     setMrzError(null);
     setError(null);
@@ -178,6 +233,7 @@ const PassportExtractor = () => {
     setOcrText(null);
     setMrzText(null);
     setMrzModel(null);
+    setMrzModelLoadFailure(null);
     setFullError(null);
     setMrzError(null);
     setError(null);
@@ -194,6 +250,7 @@ const PassportExtractor = () => {
     setOcrText(null);
     setMrzText(null);
     setMrzModel(null);
+    setMrzModelLoadFailure(null);
     setFullError(null);
     setMrzError(null);
     setProgress(0);
@@ -222,6 +279,7 @@ const PassportExtractor = () => {
       });
       setMrzText(mrzResult.text);
       setMrzModel(mrzResult.modelUsed);
+      setMrzModelLoadFailure(mrzResult.modelLoadFailure);
     } catch (err) {
       console.error('MRZ OCR failed:', err);
       const msg = err instanceof Error ? (err.stack || err.message) : String(err);
@@ -353,6 +411,29 @@ const PassportExtractor = () => {
                 ) : (
                   <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
 {`----- MRZ OCR (CROPPED) -----${mrzModel ? `\n[model: ${mrzModel === 'mrz' ? 'OCR-B / mrz.traineddata' : 'eng.traineddata (fallback)'}]` : ''}\n\n${mrzText ?? ''}`}
+                  </pre>
+                )}
+                {mrzModelLoadFailure && (
+                  <pre className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto text-destructive">
+{`MRZ model load failed
+
+URL:
+${mrzModelLoadFailure.url}
+
+HTTP:
+${mrzModelLoadFailure.httpStatus}
+
+Network error:
+${mrzModelLoadFailure.networkError}
+
+CORS error:
+${mrzModelLoadFailure.corsError}
+
+Reason:
+${mrzModelLoadFailure.reason}
+
+Stack:
+${mrzModelLoadFailure.stack}`}
                   </pre>
                 )}
               </div>
