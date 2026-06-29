@@ -84,6 +84,11 @@ async function recognizeMrz(
     };
     console.warn('MRZ traineddata unavailable, falling back to eng:', err);
     console.error('MRZ model load failed diagnostics:', modelLoadFailure);
+    console.error('MRZ model requested URL:', modelLoadFailure.url);
+    console.error('MRZ model HTTP status:', modelLoadFailure.httpStatus);
+    console.error('MRZ model network error:', modelLoadFailure.networkError);
+    console.error('MRZ model CORS error:', modelLoadFailure.corsError);
+    console.error('MRZ model exception stack:', modelLoadFailure.stack);
   }
 
   // Fallback to default English model.
