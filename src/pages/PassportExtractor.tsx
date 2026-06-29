@@ -5,12 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Upload, X, ScanFace, FileImage, Loader2 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
+import mrzTrainedDataAsset from '../../public/tessdata/mrz.traineddata.asset.json';
 
-// CDN that hosts the OCR-B / MRZ trained model (mrz.traineddata).
-// Falls back to the default English model when this cannot be loaded.
-const MRZ_LANG_PATH =
-  'https://raw.githubusercontent.com/DoubangoTelecom/tesseractMRZ/master/tessdata_best';
-const MRZ_TRAINEDDATA_URL = `${MRZ_LANG_PATH}/mrz.traineddata.gz`;
+// MRZ / OCR-B trained model bundled with the project and served from our
+// asset CDN. The traineddata is shipped uncompressed (no .gz), so Tesseract.js
+// is told to skip gzip decoding via `gzip: false`.
+const MRZ_TRAINEDDATA_URL = mrzTrainedDataAsset.url;
+const MRZ_LANG_PATH = MRZ_TRAINEDDATA_URL.replace(/\/mrz\.traineddata$/, '');
 
 type MrzModelLoadFailure = {
   url: string;
@@ -63,12 +64,21 @@ async function recognizeMrz(
   // Try the MRZ / OCR-B model first.
   let modelLoadFailure: MrzModelLoadFailure | null = null;
   try {
+    // Verify the traineddata is reachable (HTTP 200) before handing off to
+    // Tesseract.js — otherwise the worker silently falls back / hangs.
+    const probe = await probeMrzModelUrl();
+    if (!probe.httpStatus.startsWith('200')) {
+      throw new Error(
+        `MRZ traineddata not reachable (HTTP ${probe.httpStatus}, network: ${probe.networkError}, cors: ${probe.corsError})`,
+      );
+    }
     const r = await Tesseract.recognize(input, 'mrz', {
       logger,
       errorHandler: (err: unknown) => {
         console.error('MRZ traineddata worker error:', err);
       },
       langPath: MRZ_LANG_PATH,
+      gzip: false,
       ...baseOptions,
     } as never);
     return { text: r.data.text ?? '', modelUsed: 'mrz', modelLoadFailure: null };
