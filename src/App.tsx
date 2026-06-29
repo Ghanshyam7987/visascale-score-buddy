@@ -13,6 +13,7 @@ import Itineraries from "./pages/Itineraries";
 import Events from "./pages/Events";
 import Admin from "./pages/Admin";
 import AdminLogin from "./pages/AdminLogin";
+import PassportExtractor from "./pages/PassportExtractor";
 import CoverLetter from "./pages/CoverLetter";
 import Noc from "./pages/Noc";
 import VisaNews from "./pages/VisaNews";
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="/calculator" element={<Calculator />} />
             <Route path="/salary-slip" element={<SalarySlip />} />
             <Route path="/cover-letter" element={<CoverLetter />} />
+            <Route path="/passport-extractor" element={<PassportExtractor />} />
             <Route path="/noc" element={<Noc />} />
             <Route path="/itineraries" element={<Itineraries />} />
             <Route path="/events" element={<Events />} />

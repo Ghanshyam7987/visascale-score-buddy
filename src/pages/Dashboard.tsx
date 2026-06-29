@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Calculator, FileText, TrendingUp, Clock, Map, Calendar, Newspaper, FileCheck, ScrollText } from 'lucide-react';
+import { Calculator, FileText, TrendingUp, Clock, Map, Calendar, Newspaper, FileCheck, ScrollText, ScanFace } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -12,6 +12,7 @@ const Dashboard = () => {
   const quickActions = [
     { path: '/calculator', icon: Calculator, title: 'Calculate VisaScore', desc: 'Check your approval chances', color: 'bg-primary/10 text-primary' },
     { path: '/salary-slip', icon: FileText, title: 'Salary Slip', desc: 'Generate PDF salary slip', color: 'bg-accent/10 text-accent' },
+    { path: '/passport-extractor', icon: ScanFace, title: 'Passport Extractor', desc: 'Extract passport data', color: 'bg-primary/10 text-primary' },
     { path: '/cover-letter', icon: ScrollText, title: 'Cover Letter', desc: 'Generate visa cover letter', color: 'bg-primary/10 text-primary' },
     { path: '/noc', icon: FileCheck, title: 'Parents NOC', desc: 'No Objection Certificate', color: 'bg-accent/10 text-accent' },
     { path: '/itineraries', icon: Map, title: 'Itineraries', desc: 'Browse travel itineraries', color: 'bg-secondary/10 text-secondary-foreground' },
