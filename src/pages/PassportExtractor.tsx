@@ -99,6 +99,8 @@ const PassportExtractor = () => {
   const [file, setFile] = useState<File | null>(null);
   const [ocrText, setOcrText] = useState<string | null>(null);
   const [mrzText, setMrzText] = useState<string | null>(null);
+  const [fullError, setFullError] = useState<string | null>(null);
+  const [mrzError, setMrzError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +116,8 @@ const PassportExtractor = () => {
     setFile(f);
     setOcrText(null);
     setMrzText(null);
+    setFullError(null);
+    setMrzError(null);
     setError(null);
     setProgress(0);
   }, []);
@@ -131,6 +135,8 @@ const PassportExtractor = () => {
     setFile(null);
     setOcrText(null);
     setMrzText(null);
+    setFullError(null);
+    setMrzError(null);
     setError(null);
     setProgress(0);
     if (inputRef.current) {
@@ -144,9 +150,12 @@ const PassportExtractor = () => {
     setError(null);
     setOcrText(null);
     setMrzText(null);
+    setFullError(null);
+    setMrzError(null);
     setProgress(0);
+
+    // Pass 1: full-page OCR (raw) — isolated
     try {
-      // Pass 1: full-page OCR (raw)
       const fullResult = await Tesseract.recognize(file, 'eng', {
         logger: (m) => {
           if (m.status === 'recognizing text' && typeof m.progress === 'number') {
@@ -155,8 +164,14 @@ const PassportExtractor = () => {
         },
       });
       setOcrText(fullResult.data.text ?? '');
+    } catch (err) {
+      console.error('Full Page OCR failed:', err);
+      const msg = err instanceof Error ? (err.stack || err.message) : String(err);
+      setFullError(msg);
+    }
 
-      // Pass 2: cropped + preprocessed MRZ region with strict OCR settings
+    // Pass 2: cropped MRZ OCR — isolated, must not stop execution
+    try {
       const mrzDataUrl = await buildMrzCrop(image);
       const mrzResult = await Tesseract.recognize(mrzDataUrl, 'eng', {
         logger: (m) => {
@@ -170,11 +185,12 @@ const PassportExtractor = () => {
       } as never);
       setMrzText(mrzResult.data.text ?? '');
     } catch (err) {
-      console.error('OCR failed:', err);
-      setError(err instanceof Error ? err.message : 'OCR failed. Please try again.');
-    } finally {
-      setIsProcessing(false);
+      console.error('MRZ OCR failed:', err);
+      const msg = err instanceof Error ? (err.stack || err.message) : String(err);
+      setMrzError(msg);
     }
+
+    setIsProcessing(false);
   }, [file, image]);
 
   return (
@@ -279,16 +295,28 @@ const PassportExtractor = () => {
               </div>
             ) : error ? (
               <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-                <p className="text-sm text-destructive">{error}</p>
+                <p className="text-sm text-destructive whitespace-pre-wrap break-words">{error}</p>
               </div>
-            ) : ocrText !== null ? (
+            ) : ocrText !== null || mrzText !== null || fullError || mrzError ? (
               <div className="space-y-4">
-                <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
-{`----- RAW OCR (FULL PAGE) -----\n\n${ocrText}`}
-                </pre>
-                <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
+                {fullError ? (
+                  <pre className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto text-destructive">
+{`Full Page OCR Error:\n\n${fullError}`}
+                  </pre>
+                ) : (
+                  <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
+{`----- RAW OCR (FULL PAGE) -----\n\n${ocrText ?? ''}`}
+                  </pre>
+                )}
+                {mrzError ? (
+                  <pre className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto text-destructive">
+{`MRZ OCR Error:\n\n${mrzError}`}
+                  </pre>
+                ) : (
+                  <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
 {`----- MRZ OCR (CROPPED) -----\n\n${mrzText ?? ''}`}
-                </pre>
+                  </pre>
+                )}
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border bg-muted/50 p-8 text-center">
