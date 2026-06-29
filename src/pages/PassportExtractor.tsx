@@ -6,6 +6,46 @@ import { Button } from '@/components/ui/button';
 import { Upload, X, ScanFace, FileImage, Loader2 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 
+// CDN that hosts the OCR-B / MRZ trained model (mrz.traineddata).
+// Falls back to the default English model when this cannot be loaded.
+const MRZ_LANG_PATH =
+  'https://raw.githubusercontent.com/DoubangoTelecom/tesseractMRZ/master/tessdata_best';
+
+async function recognizeMrz(
+  input: string,
+  onProgress: (p: number) => void,
+): Promise<{ text: string; modelUsed: 'mrz' | 'eng' }> {
+  const baseOptions = {
+    tessedit_pageseg_mode: '6',
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
+  } as Record<string, unknown>;
+
+  const logger = (m: { status?: string; progress?: number }) => {
+    if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+      onProgress(m.progress);
+    }
+  };
+
+  // Try the MRZ / OCR-B model first.
+  try {
+    const r = await Tesseract.recognize(input, 'mrz', {
+      logger,
+      langPath: MRZ_LANG_PATH,
+      ...baseOptions,
+    } as never);
+    return { text: r.data.text ?? '', modelUsed: 'mrz' };
+  } catch (err) {
+    console.warn('MRZ traineddata unavailable, falling back to eng:', err);
+  }
+
+  // Fallback to default English model.
+  const r = await Tesseract.recognize(input, 'eng', {
+    logger,
+    ...baseOptions,
+  } as never);
+  return { text: r.data.text ?? '', modelUsed: 'eng' };
+}
+
 // Preprocess the bottom 25% of the passport image (MRZ band):
 // grayscale -> contrast boost -> adaptive threshold -> 2x upscale.
 // Returns a data URL ready for OCR.
@@ -99,6 +139,7 @@ const PassportExtractor = () => {
   const [file, setFile] = useState<File | null>(null);
   const [ocrText, setOcrText] = useState<string | null>(null);
   const [mrzText, setMrzText] = useState<string | null>(null);
+  const [mrzModel, setMrzModel] = useState<'mrz' | 'eng' | null>(null);
   const [fullError, setFullError] = useState<string | null>(null);
   const [mrzError, setMrzError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -116,6 +157,7 @@ const PassportExtractor = () => {
     setFile(f);
     setOcrText(null);
     setMrzText(null);
+    setMrzModel(null);
     setFullError(null);
     setMrzError(null);
     setError(null);
@@ -135,6 +177,7 @@ const PassportExtractor = () => {
     setFile(null);
     setOcrText(null);
     setMrzText(null);
+    setMrzModel(null);
     setFullError(null);
     setMrzError(null);
     setError(null);
@@ -150,6 +193,7 @@ const PassportExtractor = () => {
     setError(null);
     setOcrText(null);
     setMrzText(null);
+    setMrzModel(null);
     setFullError(null);
     setMrzError(null);
     setProgress(0);
@@ -173,17 +217,11 @@ const PassportExtractor = () => {
     // Pass 2: cropped MRZ OCR — isolated, must not stop execution
     try {
       const mrzDataUrl = await buildMrzCrop(image);
-      const mrzResult = await Tesseract.recognize(mrzDataUrl, 'eng', {
-        logger: (m) => {
-          if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-            setProgress(50 + Math.round(m.progress * 50));
-          }
-        },
-        // PSM 6 = SINGLE_BLOCK of uniform text
-        tessedit_pageseg_mode: '6',
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
-      } as never);
-      setMrzText(mrzResult.data.text ?? '');
+      const mrzResult = await recognizeMrz(mrzDataUrl, (p) => {
+        setProgress(50 + Math.round(p * 50));
+      });
+      setMrzText(mrzResult.text);
+      setMrzModel(mrzResult.modelUsed);
     } catch (err) {
       console.error('MRZ OCR failed:', err);
       const msg = err instanceof Error ? (err.stack || err.message) : String(err);
@@ -314,7 +352,7 @@ const PassportExtractor = () => {
                   </pre>
                 ) : (
                   <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
-{`----- MRZ OCR (CROPPED) -----\n\n${mrzText ?? ''}`}
+{`----- MRZ OCR (CROPPED) -----${mrzModel ? `\n[model: ${mrzModel === 'mrz' ? 'OCR-B / mrz.traineddata' : 'eng.traineddata (fallback)'}]` : ''}\n\n${mrzText ?? ''}`}
                   </pre>
                 )}
               </div>
