@@ -6,11 +6,99 @@ import { Button } from '@/components/ui/button';
 import { Upload, X, ScanFace, FileImage, Loader2 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 
+// Preprocess the bottom 25% of the passport image (MRZ band):
+// grayscale -> contrast boost -> adaptive threshold -> 2x upscale.
+// Returns a data URL ready for OCR.
+async function buildMrzCrop(srcUrl: string): Promise<string> {
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.crossOrigin = 'anonymous';
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = srcUrl;
+  });
+
+  const cropH = Math.max(1, Math.round(img.naturalHeight * 0.25));
+  const cropY = img.naturalHeight - cropH;
+  const cropW = img.naturalWidth;
+
+  // Initial crop canvas
+  const base = document.createElement('canvas');
+  base.width = cropW;
+  base.height = cropH;
+  const bctx = base.getContext('2d')!;
+  bctx.drawImage(img, 0, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  const imgData = bctx.getImageData(0, 0, cropW, cropH);
+  const data = imgData.data;
+
+  // Grayscale + contrast boost (around mid 128)
+  const contrast = 1.6;
+  const gray = new Uint8ClampedArray(cropW * cropH);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    let v = (g - 128) * contrast + 128;
+    if (v < 0) v = 0;
+    else if (v > 255) v = 255;
+    gray[p] = v;
+  }
+
+  // Adaptive threshold (mean of local window)
+  const win = Math.max(15, Math.round(cropH / 12) | 1); // odd-ish window
+  const half = Math.floor(win / 2);
+  const C = 10;
+
+  // Build integral image for fast local mean
+  const integral = new Float64Array((cropW + 1) * (cropH + 1));
+  for (let y = 0; y < cropH; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < cropW; x++) {
+      rowSum += gray[y * cropW + x];
+      integral[(y + 1) * (cropW + 1) + (x + 1)] =
+        integral[y * (cropW + 1) + (x + 1)] + rowSum;
+    }
+  }
+
+  for (let y = 0; y < cropH; y++) {
+    const y1 = Math.max(0, y - half);
+    const y2 = Math.min(cropH - 1, y + half);
+    for (let x = 0; x < cropW; x++) {
+      const x1 = Math.max(0, x - half);
+      const x2 = Math.min(cropW - 1, x + half);
+      const area = (x2 - x1 + 1) * (y2 - y1 + 1);
+      const sum =
+        integral[(y2 + 1) * (cropW + 1) + (x2 + 1)] -
+        integral[(y1) * (cropW + 1) + (x2 + 1)] -
+        integral[(y2 + 1) * (cropW + 1) + (x1)] +
+        integral[y1 * (cropW + 1) + x1];
+      const mean = sum / area;
+      const idx = (y * cropW + x) * 4;
+      const v = gray[y * cropW + x] < mean - C ? 0 : 255;
+      data[idx] = v;
+      data[idx + 1] = v;
+      data[idx + 2] = v;
+      data[idx + 3] = 255;
+    }
+  }
+  bctx.putImageData(imgData, 0, 0);
+
+  // 2x upscale
+  const up = document.createElement('canvas');
+  up.width = cropW * 2;
+  up.height = cropH * 2;
+  const uctx = up.getContext('2d')!;
+  uctx.imageSmoothingEnabled = false;
+  uctx.drawImage(base, 0, 0, up.width, up.height);
+
+  return up.toDataURL('image/png');
+}
+
 const PassportExtractor = () => {
   const [image, setImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [ocrText, setOcrText] = useState<string | null>(null);
+  const [mrzText, setMrzText] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +113,7 @@ const PassportExtractor = () => {
     setFileName(f.name);
     setFile(f);
     setOcrText(null);
+    setMrzText(null);
     setError(null);
     setProgress(0);
   }, []);
@@ -41,6 +130,7 @@ const PassportExtractor = () => {
     setFileName(null);
     setFile(null);
     setOcrText(null);
+    setMrzText(null);
     setError(null);
     setProgress(0);
     if (inputRef.current) {
@@ -49,27 +139,43 @@ const PassportExtractor = () => {
   }, [image]);
 
   const handleExtract = useCallback(async () => {
-    if (!file) return;
+    if (!file || !image) return;
     setIsProcessing(true);
     setError(null);
     setOcrText(null);
+    setMrzText(null);
     setProgress(0);
     try {
-      const result = await Tesseract.recognize(file, 'eng', {
+      // Pass 1: full-page OCR (raw)
+      const fullResult = await Tesseract.recognize(file, 'eng', {
         logger: (m) => {
           if (m.status === 'recognizing text' && typeof m.progress === 'number') {
-            setProgress(Math.round(m.progress * 100));
+            setProgress(Math.round(m.progress * 50));
           }
         },
       });
-      setOcrText(result.data.text ?? '');
+      setOcrText(fullResult.data.text ?? '');
+
+      // Pass 2: cropped + preprocessed MRZ region with strict OCR settings
+      const mrzDataUrl = await buildMrzCrop(image);
+      const mrzResult = await Tesseract.recognize(mrzDataUrl, 'eng', {
+        logger: (m) => {
+          if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+            setProgress(50 + Math.round(m.progress * 50));
+          }
+        },
+        // PSM 6 = SINGLE_BLOCK of uniform text
+        tessedit_pageseg_mode: '6',
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
+      } as never);
+      setMrzText(mrzResult.data.text ?? '');
     } catch (err) {
       console.error('OCR failed:', err);
       setError(err instanceof Error ? err.message : 'OCR failed. Please try again.');
     } finally {
       setIsProcessing(false);
     }
-  }, [file]);
+  }, [file, image]);
 
   return (
     <AppLayout>
@@ -176,9 +282,14 @@ const PassportExtractor = () => {
                 <p className="text-sm text-destructive">{error}</p>
               </div>
             ) : ocrText !== null ? (
-              <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[500px] overflow-auto">
-{`----- RAW OCR TEXT -----\n\n${ocrText}`}
-              </pre>
+              <div className="space-y-4">
+                <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
+{`----- RAW OCR (FULL PAGE) -----\n\n${ocrText}`}
+                </pre>
+                <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
+{`----- MRZ OCR (CROPPED) -----\n\n${mrzText ?? ''}`}
+                </pre>
+              </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border bg-muted/50 p-8 text-center">
                 <p className="text-sm text-muted-foreground">Upload an image and press Extract to run OCR.</p>
