@@ -408,6 +408,29 @@ const PassportExtractor = () => {
 {`----- MRZ OCR (CROPPED) -----${mrzModel ? `\n[model: ${mrzModel === 'mrz' ? 'OCR-B / mrz.traineddata' : 'eng.traineddata (fallback)'}]` : ''}\n\n${mrzText ?? ''}`}
                   </pre>
                 )}
+                {mrzModelLoadFailure && (
+                  <pre className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto text-destructive">
+{`MRZ model load failed
+
+URL:
+${mrzModelLoadFailure.url}
+
+HTTP:
+${mrzModelLoadFailure.httpStatus}
+
+Network error:
+${mrzModelLoadFailure.networkError}
+
+CORS error:
+${mrzModelLoadFailure.corsError}
+
+Reason:
+${mrzModelLoadFailure.reason}
+
+Stack:
+${mrzModelLoadFailure.stack}`}
+                  </pre>
+                )}
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border bg-muted/50 p-8 text-center">
