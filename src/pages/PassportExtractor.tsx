@@ -420,7 +420,7 @@ const PassportExtractor = () => {
                   </pre>
                 ) : (
                   <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[400px] overflow-auto">
-{`----- MRZ OCR (CROPPED) -----${mrzModel ? `\n[model: ${mrzModel === 'mrz' ? 'OCR-B / mrz.traineddata' : 'eng.traineddata (fallback)'}]` : ''}\n\n${mrzText ?? ''}`}
+{`----- MRZ OCR (CROPPED) -----${mrzModel ? `\nLoaded model:\n${mrzModel === 'mrz' ? 'mrz.traineddata' : 'eng.traineddata (fallback)'}` : ''}\n\n${mrzText ?? ''}`}
                   </pre>
                 )}
                 {mrzModelLoadFailure && (
