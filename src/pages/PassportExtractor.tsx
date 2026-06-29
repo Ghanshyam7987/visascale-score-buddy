@@ -3,20 +3,30 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, X, ScanFace, FileImage } from 'lucide-react';
+import { Upload, X, ScanFace, FileImage, Loader2 } from 'lucide-react';
+import Tesseract from 'tesseract.js';
 
 const PassportExtractor = () => {
   const [image, setImage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [ocrText, setOcrText] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const f = e.target.files?.[0];
+    if (!f) return;
 
-    const objectUrl = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(f);
     setImage(objectUrl);
-    setFileName(file.name);
+    setFileName(f.name);
+    setFile(f);
+    setOcrText(null);
+    setError(null);
+    setProgress(0);
   }, []);
 
   const handleUploadClick = useCallback(() => {
@@ -29,10 +39,37 @@ const PassportExtractor = () => {
     }
     setImage(null);
     setFileName(null);
+    setFile(null);
+    setOcrText(null);
+    setError(null);
+    setProgress(0);
     if (inputRef.current) {
       inputRef.current.value = '';
     }
   }, [image]);
+
+  const handleExtract = useCallback(async () => {
+    if (!file) return;
+    setIsProcessing(true);
+    setError(null);
+    setOcrText(null);
+    setProgress(0);
+    try {
+      const result = await Tesseract.recognize(file, 'eng', {
+        logger: (m) => {
+          if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+            setProgress(Math.round(m.progress * 100));
+          }
+        },
+      });
+      setOcrText(result.data.text ?? '');
+    } catch (err) {
+      console.error('OCR failed:', err);
+      setError(err instanceof Error ? err.message : 'OCR failed. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [file]);
 
   return (
     <AppLayout>
@@ -99,13 +136,22 @@ const PassportExtractor = () => {
               )}
 
               <Button
-                onClick={() => {}}
-                disabled={!image}
+                onClick={handleExtract}
+                disabled={!image || isProcessing}
                 className="w-full"
                 size="lg"
               >
-                <ScanFace className="h-5 w-5 mr-2" />
-                Extract
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                    Extracting{progress ? ` ${progress}%` : '...'}
+                  </>
+                ) : (
+                  <>
+                    <ScanFace className="h-5 w-5 mr-2" />
+                    Extract
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>
@@ -118,9 +164,26 @@ const PassportExtractor = () => {
             <CardDescription>Detected passport fields will appear here.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-lg border border-dashed border-border bg-muted/50 p-8 text-center">
-              <p className="text-sm text-muted-foreground">OCR engine not connected yet.</p>
-            </div>
+            {isProcessing ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/50 p-8 flex flex-col items-center gap-3">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">
+                  Running OCR{progress ? ` (${progress}%)` : '...'}
+                </p>
+              </div>
+            ) : error ? (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            ) : ocrText !== null ? (
+              <pre className="rounded-lg border border-border bg-muted/50 p-4 text-xs whitespace-pre-wrap break-words font-mono max-h-[500px] overflow-auto">
+{`----- RAW OCR TEXT -----\n\n${ocrText}`}
+              </pre>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-muted/50 p-8 text-center">
+                <p className="text-sm text-muted-foreground">Upload an image and press Extract to run OCR.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
