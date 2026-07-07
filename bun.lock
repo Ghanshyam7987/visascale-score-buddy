@@ -49,6 +49,7 @@
         "input-otp": "^1.4.2",
         "jspdf": "^4.2.1",
         "lucide-react": "^0.462.0",
+        "mrz": "^5.0.2",
         "next-themes": "^0.3.0",
         "pdfjs-dist": "4.0.379",
         "react": "^18.3.1",
@@ -1021,6 +1022,8 @@
     "motion-dom": ["motion-dom@12.27.5", "", { "dependencies": { "motion-utils": "^12.27.2" } }, "sha512-UwBv2AUOkA7/TCHr67NGjg3aRT7nbsanmmenRoR7T6IJXZp34OZB+pooGnKjMd8CqqCsF/+qwT657EkukjgmiQ=="],
 
     "motion-utils": ["motion-utils@12.27.2", "", {}, "sha512-B55gcoL85Mcdt2IEStY5EEAsrMSVE2sI14xQ/uAdPL+mfQxhKKFaEag9JmfxedJOR4vZpBGoPeC/Gm13I/4g5Q=="],
+
+    "mrz": ["mrz@5.0.2", "https://europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/mrz/-/mrz-5.0.2.tgz", {}, "sha512-GXZ2eCwXrXHy3aTYLwckAyKy0V2yIEGM1Hgj8SjIbsGwVdZRdwrUSdNdetLZV4avgPUfKslBVvwbN7RVdWiyzw=="],
 
     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
 
