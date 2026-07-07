@@ -569,10 +569,6 @@ export async function extractPassportMrz(
     report(0.02, 'Loading image');
     const img = await loadImage(src);
 
-    report(0.08, 'Detecting MRZ band');
-    const band = detectMrzBand(img);
-    const bandCanvas = cropBand(img, band);
-
     report(0.15, 'Initializing OCR');
     workerBundle = await createOcrWorker();
     const { worker, modelUsed } = workerBundle;
