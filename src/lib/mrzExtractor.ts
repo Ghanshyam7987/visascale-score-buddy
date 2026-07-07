@@ -415,10 +415,53 @@ function padOrTrim(l: string): string {
   return l + '<'.repeat(44 - l.length);
 }
 
+function mrzCharValue(ch: string): number {
+  if (ch >= '0' && ch <= '9') return ch.charCodeAt(0) - 48;
+  if (ch >= 'A' && ch <= 'Z') return ch.charCodeAt(0) - 55;
+  return 0;
+}
+
+function checkDigitFor(s: string): string {
+  const weights = [7, 3, 1];
+  let sum = 0;
+  for (let i = 0; i < s.length; i++) sum += mrzCharValue(s[i]) * weights[i % 3];
+  return String(sum % 10);
+}
+
+function findLikelyLine2Start(line: string): number {
+  let best = -1;
+  let bestScore = -1;
+  for (let i = 30; i <= line.length - 30; i++) {
+    const c = padOrTrim(line.slice(i)).split('');
+    for (let j = 9; j <= 43; j++) c[j] = c[j] ?? '<';
+    c[9] = forceCheckDigit(c[9]);
+    for (let j = 10; j <= 12; j++) c[j] = forceAlpha(c[j]);
+    for (let j = 13; j <= 18; j++) c[j] = forceDigit(c[j]);
+    c[19] = forceCheckDigit(c[19]);
+    c[20] = forceGender(c[20]);
+    for (let j = 21; j <= 26; j++) c[j] = forceDigit(c[j]);
+    c[27] = forceCheckDigit(c[27]);
+    c[42] = forceCheckDigit(c[42]);
+    c[43] = forceCheckDigit(c[43]);
+    const candidate = c.join('');
+
+    let score = 0;
+    if (/^[A-Z0-9<]{9}[0-9<][A-Z]{3}\d{6}[0-9<][MF<]\d{6}[0-9<]/.test(candidate)) score += 20;
+    if (checkDigitFor(candidate.slice(0, 9)) === candidate[9]) score += 8;
+    if (checkDigitFor(candidate.slice(13, 19)) === candidate[19]) score += 8;
+    if (checkDigitFor(candidate.slice(21, 27)) === candidate[27]) score += 8;
+    if (checkDigitFor(candidate.slice(28, 42)) === candidate[42]) score += 4;
+    if (checkDigitFor(candidate.slice(0, 10) + candidate.slice(13, 20) + candidate.slice(21, 43)) === candidate[43]) score += 8;
+    if (i >= 40 && i <= 46) score += 4;
+    if (score > bestScore) { bestScore = score; best = i; }
+  }
+  return bestScore >= 28 ? best : -1;
+}
+
 function splitPossibleWrappedMrz(line: string): string[] {
   if (line.length <= 55) return [line];
 
-  const secondLineStart = line.search(/[A-Z0-9<]{6,9}<?[0-9<][A-Z]{3}[0-9A-Z<]{6}[0-9<][MF<X][0-9A-Z<]{6}/);
+  const secondLineStart = findLikelyLine2Start(line);
   if (secondLineStart > 25 && secondLineStart < line.length - 30) {
     return [line.slice(0, secondLineStart), line.slice(secondLineStart)];
   }
