@@ -73,7 +73,7 @@ const PassportExtractor = () => {
       setResult({
         ok: false,
         rawMrz: '',
-        modelUsed: 'eng',
+        modelUsed: 'mrz',
         attempts: [],
         warnings: [],
         error: err instanceof Error ? (err.stack || err.message) : String(err),
