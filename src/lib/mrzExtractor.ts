@@ -415,9 +415,28 @@ function padOrTrim(l: string): string {
   return l + '<'.repeat(44 - l.length);
 }
 
+function splitPossibleWrappedMrz(line: string): string[] {
+  if (line.length <= 55) return [line];
+
+  const secondLineStart = line.search(/[A-Z0-9<]{6,9}<?[0-9<][A-Z]{3}[0-9A-Z<]{6}[0-9<][MF<X][0-9A-Z<]{6}/);
+  if (secondLineStart > 25 && secondLineStart < line.length - 30) {
+    return [line.slice(0, secondLineStart), line.slice(secondLineStart)];
+  }
+
+  const pIndex = line.search(/P[A-Z<][A-Z]{3}/);
+  if (pIndex >= 0 && line.length - pIndex >= 80) {
+    const candidate = line.slice(pIndex);
+    return [candidate.slice(0, 44), candidate.slice(44, 88)];
+  }
+
+  return [line];
+}
+
 function pickMrzLines(rawText: string): [string, string] | null {
   const lines = rawText
     .split(/\r?\n/)
+    .map((l) => stripToMrzAlphabet(l))
+    .flatMap((l) => splitPossibleWrappedMrz(l))
     .map((l) => stripToMrzAlphabet(l))
     .filter((l) => l.length >= 30 && (l.match(/</g)?.length ?? 0) >= 3);
   if (lines.length < 2) return null;
