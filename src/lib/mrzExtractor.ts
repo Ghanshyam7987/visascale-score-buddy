@@ -193,6 +193,18 @@ function cropBand(img: HTMLImageElement, band: { x: number; y: number; w: number
   return c;
 }
 
+function candidateBands(img: HTMLImageElement): { name: string; canvas: HTMLCanvasElement }[] {
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const list: { name: string; band: { x: number; y: number; w: number; h: number } }[] = [];
+  list.push({ name: 'auto', band: detectMrzBand(img) });
+  for (const frac of [0.14, 0.18, 0.22, 0.28, 0.34]) {
+    const h = Math.round(H * frac);
+    list.push({ name: `bottom-${Math.round(frac * 100)}`, band: { x: 0, y: H - h, w: W, h } });
+  }
+  return list.map((c) => ({ name: c.name, canvas: cropBand(img, c.band) }));
+}
+
 // ---------------------------------------------------------------------------
 // Preprocessing primitives
 // ---------------------------------------------------------------------------
@@ -407,7 +419,7 @@ function pickMrzLines(rawText: string): [string, string] | null {
   const lines = rawText
     .split(/\r?\n/)
     .map((l) => stripToMrzAlphabet(l))
-    .filter((l) => l.length >= 30);
+    .filter((l) => l.length >= 30 && (l.match(/</g)?.length ?? 0) >= 3);
   if (lines.length < 2) return null;
 
   // Score by closeness to 44 chars; keep original order.
@@ -416,6 +428,19 @@ function pickMrzLines(rawText: string): [string, string] | null {
   const top = sorted.slice(0, 2).sort((a, b) => a.i - b.i);
   if (top.length < 2) return null;
   return [padOrTrim(top[0].l), padOrTrim(top[1].l)];
+}
+
+function looksLikeMrz(rawText: string): number {
+  // Higher = more likely a real MRZ OCR result. Used to pick best band.
+  const lines = rawText.split(/\r?\n/).map((l) => stripToMrzAlphabet(l));
+  let score = 0;
+  for (const l of lines) {
+    const fillers = (l.match(/</g)?.length ?? 0);
+    if (fillers >= 5) score += fillers;
+    if (/^P[A-Z<]/.test(l)) score += 20;
+    if (l.length >= 40 && l.length <= 48) score += 10;
+  }
+  return score;
 }
 
 function forceAlpha(ch: string): string { return DIGIT_TO_LETTER[ch] ?? ch; }
@@ -544,10 +569,6 @@ export async function extractPassportMrz(
     report(0.02, 'Loading image');
     const img = await loadImage(src);
 
-    report(0.08, 'Detecting MRZ band');
-    const band = detectMrzBand(img);
-    const bandCanvas = cropBand(img, band);
-
     report(0.15, 'Initializing OCR');
     workerBundle = await createOcrWorker();
     const { worker, modelUsed } = workerBundle;
@@ -555,35 +576,44 @@ export async function extractPassportMrz(
     let bestResult: { data: PassportData; rawText: string; checksumsValid: boolean } | null = null;
     let lastRaw = '';
 
+    const bands = candidateBands(img);
+
     for (let i = 0; i < STRATEGIES.length; i++) {
       const strat = STRATEGIES[i];
       report(0.2 + (i / STRATEGIES.length) * 0.7, `OCR: ${strat.name}`);
 
-      let processed: HTMLCanvasElement;
-      try {
-        processed = strat.run(bandCanvas);
-      } catch (err) {
-        attempts.push({
-          strategy: strat.name,
-          rawText: '',
-          parsed: false,
-          checksumsValid: false,
-          error: `preprocess failed: ${err instanceof Error ? err.message : String(err)}`,
-        });
-        continue;
-      }
-
+      // Try each candidate band with this preprocessing strategy; keep the
+      // OCR output most resembling an MRZ block.
       let rawText = '';
-      try {
-        const r = await worker.recognize(processed);
-        rawText = r.data.text ?? '';
-      } catch (err) {
+      let bestScore = -1;
+      let bestBand = '';
+      let preErr: string | undefined;
+      for (const b of bands) {
+        let processed: HTMLCanvasElement;
+        try {
+          processed = strat.run(b.canvas);
+        } catch (err) {
+          preErr = `preprocess failed: ${err instanceof Error ? err.message : String(err)}`;
+          continue;
+        }
+        let text = '';
+        try {
+          const r = await worker.recognize(processed);
+          text = r.data.text ?? '';
+        } catch (err) {
+          preErr = `ocr failed: ${err instanceof Error ? err.message : String(err)}`;
+          continue;
+        }
+        const sc = looksLikeMrz(text);
+        if (sc > bestScore) { bestScore = sc; rawText = text; bestBand = b.name; }
+      }
+      if (bestScore < 0) {
         attempts.push({
           strategy: strat.name,
           rawText: '',
           parsed: false,
           checksumsValid: false,
-          error: `ocr failed: ${err instanceof Error ? err.message : String(err)}`,
+          error: preErr ?? 'no band produced OCR output',
         });
         continue;
       }
@@ -592,7 +622,7 @@ export async function extractPassportMrz(
       const picked = pickMrzLines(rawText);
       if (!picked) {
         attempts.push({
-          strategy: strat.name,
+          strategy: `${strat.name} [${bestBand}]`,
           rawText,
           parsed: false,
           checksumsValid: false,
@@ -605,7 +635,7 @@ export async function extractPassportMrz(
 
       const parsed = tryParse(line1, line2);
       attempts.push({
-        strategy: strat.name,
+        strategy: `${strat.name} [${bestBand}]`,
         rawText: `${line1}\n${line2}`,
         parsed: parsed.ok,
         checksumsValid: parsed.checksumsValid,
