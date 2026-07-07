@@ -475,13 +475,20 @@ function splitPossibleWrappedMrz(line: string): string[] {
   return [line];
 }
 
+function isLikelyMrzLine(line: string): boolean {
+  if (line.length < 30) return false;
+  const fillers = line.match(/</g)?.length ?? 0;
+  if (fillers >= 3) return true;
+  return /^[A-Z0-9<]{9}[0-9<][A-Z]{3}[0-9A-Z<]{6}[0-9<][MF<X][0-9A-Z<]{6}/.test(line);
+}
+
 function pickMrzLines(rawText: string): [string, string] | null {
   const lines = rawText
     .split(/\r?\n/)
     .map((l) => stripToMrzAlphabet(l))
     .flatMap((l) => splitPossibleWrappedMrz(l))
     .map((l) => stripToMrzAlphabet(l))
-    .filter((l) => l.length >= 30 && (l.match(/</g)?.length ?? 0) >= 3);
+    .filter(isLikelyMrzLine);
   if (lines.length < 2) return null;
 
   // Score by closeness to 44 chars; keep original order.
