@@ -3,7 +3,7 @@
  *
  * Single-file production pipeline:
  *   image -> auto MRZ band detection -> preprocessing strategies ->
- *   Tesseract.js OCR (mrz.traineddata, eng fallback) ->
+ *   Tesseract.js OCR (mrz.traineddata) ->
  *   OCR normalization + line repair -> mrz-js parse + checksum validation ->
  *   PassportData
  *
@@ -11,7 +11,7 @@
  *   passportNumber, surname, givenName, nationality, gender,
  *   dateOfBirth, expiryDate
  */
-import Tesseract, { createWorker, type Worker } from 'tesseract.js';
+import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
 import { parse as parseMrz } from 'mrz';
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ export interface MrzResult {
   ok: boolean;
   data?: PassportData;
   rawMrz: string;
-  modelUsed: 'mrz' | 'eng';
+  modelUsed: 'mrz';
   attempts: MrzAttempt[];
   warnings: string[];
   error?: string;
@@ -56,6 +56,7 @@ export interface ExtractOptions {
 
 const MRZ_LANG_PATH = '/tessdata';
 const MRZ_TRAINEDDATA_URL = '/tessdata/mrz.traineddata';
+const MRZ_CORE_PATH = '/tesseract/tesseract-core-lstm.wasm.js';
 const OCR_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
 
 async function mrzModelReachable(): Promise<boolean> {
@@ -353,29 +354,23 @@ const STRATEGIES: Strategy[] = [
 // OCR
 // ---------------------------------------------------------------------------
 
-async function createOcrWorker(): Promise<{ worker: Worker; modelUsed: 'mrz' | 'eng' }> {
+async function createOcrWorker(): Promise<{ worker: Worker; modelUsed: 'mrz' }> {
   const useMrz = await mrzModelReachable();
-  if (useMrz) {
-    try {
-      const w = await createWorker('mrz', 1, {
-        langPath: MRZ_LANG_PATH,
-        gzip: false,
-      } as never);
-      await w.setParameters({
-        tessedit_char_whitelist: OCR_WHITELIST,
-        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
-      } as never);
-      return { worker: w, modelUsed: 'mrz' };
-    } catch (err) {
-      console.warn('mrz.traineddata worker init failed, falling back to eng:', err);
-    }
+  if (!useMrz) {
+    throw new Error(`MRZ traineddata is not reachable at ${MRZ_TRAINEDDATA_URL}`);
   }
-  const w = await createWorker('eng');
+
+  const w = await createWorker('mrz', OEM.LSTM_ONLY, {
+    langPath: MRZ_LANG_PATH,
+    corePath: MRZ_CORE_PATH,
+    gzip: false,
+    cacheMethod: 'refresh',
+  } as never);
   await w.setParameters({
     tessedit_char_whitelist: OCR_WHITELIST,
-    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
+    tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
   } as never);
-  return { worker: w, modelUsed: 'eng' };
+  return { worker: w, modelUsed: 'mrz' };
 }
 
 // ---------------------------------------------------------------------------
@@ -544,7 +539,7 @@ export async function extractPassportMrz(
     try { onProgress?.(Math.max(0, Math.min(1, p)), label); } catch { /* noop */ }
   };
 
-  let workerBundle: { worker: Worker; modelUsed: 'mrz' | 'eng' } | null = null;
+  let workerBundle: { worker: Worker; modelUsed: 'mrz' } | null = null;
   try {
     report(0.02, 'Loading image');
     const img = await loadImage(src);
@@ -656,7 +651,7 @@ export async function extractPassportMrz(
     return {
       ok: false,
       rawMrz: '',
-      modelUsed: 'eng',
+      modelUsed: 'mrz',
       attempts,
       warnings,
       error: err instanceof Error ? (err.stack || err.message) : String(err),
