@@ -48,6 +48,8 @@ export interface MrzResult {
 
 export interface ExtractOptions {
   onProgress?: (progress: number, label: string) => void;
+  /** Optional pre-created worker to reuse across many files (bulk mode). */
+  worker?: Worker;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,13 +75,32 @@ async function mrzModelReachable(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 async function loadImage(src: File | string): Promise<HTMLImageElement> {
+  // For File inputs, use createImageBitmap first (handles large / EXIF-rotated
+  // photos reliably) and fall back to <img> + object URL. Do NOT set
+  // crossOrigin on blob URLs — some mobile browsers reject blob loads then.
+  if (typeof src !== 'string' && 'createImageBitmap' in window) {
+    try {
+      const bmp = await createImageBitmap(src, { imageOrientation: 'from-image' } as ImageBitmapOptions);
+      const canvas = newCanvas(bmp.width, bmp.height);
+      ctx2d(canvas).drawImage(bmp, 0, 0);
+      bmp.close?.();
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Failed to decode image'));
+        img.src = dataUrl;
+      });
+    } catch {
+      // fall through to object URL path
+    }
+  }
   const url = typeof src === 'string' ? src : URL.createObjectURL(src);
   try {
     return await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
       img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('Failed to load image'));
+      img.onerror = () => reject(new Error(`Unsupported or corrupt image (${typeof src === 'string' ? src : (src as File).type || 'unknown type'})`));
       img.src = url;
     });
   } finally {
@@ -385,6 +406,12 @@ async function createOcrWorker(): Promise<{ worker: Worker; modelUsed: 'mrz' }> 
   return { worker: w, modelUsed: 'mrz' };
 }
 
+/** Create a reusable MRZ OCR worker. Call terminate() when done. */
+export async function createMrzWorker(): Promise<Worker> {
+  const bundle = await createOcrWorker();
+  return bundle.worker;
+}
+
 // ---------------------------------------------------------------------------
 // OCR normalization + MRZ line repair
 // ---------------------------------------------------------------------------
@@ -633,14 +660,21 @@ export async function extractPassportMrz(
     try { onProgress?.(Math.max(0, Math.min(1, p)), label); } catch { /* noop */ }
   };
 
-  let workerBundle: { worker: Worker; modelUsed: 'mrz' } | null = null;
+  let ownedWorker: Worker | null = null;
   try {
     report(0.02, 'Loading image');
     const img = await loadImage(src);
 
-    report(0.15, 'Initializing OCR');
-    workerBundle = await createOcrWorker();
-    const { worker, modelUsed } = workerBundle;
+    let worker: Worker;
+    const modelUsed: 'mrz' = 'mrz';
+    if (options.worker) {
+      worker = options.worker;
+    } else {
+      report(0.15, 'Initializing OCR');
+      const bundle = await createOcrWorker();
+      ownedWorker = bundle.worker;
+      worker = bundle.worker;
+    }
 
     let bestResult: { data: PassportData; rawText: string; checksumsValid: boolean } | null = null;
     let lastRaw = '';
@@ -756,8 +790,8 @@ export async function extractPassportMrz(
       error: err instanceof Error ? (err.stack || err.message) : String(err),
     };
   } finally {
-    if (workerBundle) {
-      try { await workerBundle.worker.terminate(); } catch { /* noop */ }
+    if (ownedWorker) {
+      try { await ownedWorker.terminate(); } catch { /* noop */ }
     }
   }
 }

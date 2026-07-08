@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Upload, X, ScanFace, Loader2, FileSpreadsheet, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
-import { extractPassportMrz, type MrzResult, type PassportData } from '@/lib/mrzExtractor';
+import { extractPassportMrz, createMrzWorker, type MrzResult, type PassportData } from '@/lib/mrzExtractor';
 import { toast } from '@/hooks/use-toast';
 
 const MAX_FILES = 200;
@@ -87,6 +87,19 @@ const PassportExtractor = () => {
     setIsProcessing(true);
     cancelRef.current = false;
     const snapshot = rows;
+    setProgressLabel('Initializing OCR engine...');
+    let worker: Awaited<ReturnType<typeof createMrzWorker>> | null = null;
+    try {
+      worker = await createMrzWorker();
+    } catch (err) {
+      toast({
+        title: 'OCR engine failed to load',
+        description: err instanceof Error ? err.message : String(err),
+        variant: 'destructive',
+      });
+      setIsProcessing(false);
+      return;
+    }
     for (let i = 0; i < snapshot.length; i++) {
       if (cancelRef.current) break;
       const row = snapshot[i];
@@ -97,6 +110,7 @@ const PassportExtractor = () => {
       setRows(prev => prev.map(r => r.id === row.id ? { ...r, status: 'processing', error: undefined } : r));
       try {
         const result: MrzResult = await extractPassportMrz(row.file, {
+          worker,
           onProgress: (p, label) => {
             setCurrentProgress(Math.round(p * 100));
             setProgressLabel(label);
@@ -115,6 +129,7 @@ const PassportExtractor = () => {
         } : r));
       }
     }
+    try { await worker.terminate(); } catch { /* noop */ }
     setIsProcessing(false);
     setProgressLabel('');
     setCurrentProgress(0);
