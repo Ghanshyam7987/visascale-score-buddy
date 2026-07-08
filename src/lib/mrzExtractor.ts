@@ -75,39 +75,49 @@ async function mrzModelReachable(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 async function loadImage(src: File | string): Promise<HTMLImageElement> {
-  // For File inputs, use createImageBitmap first (handles large / EXIF-rotated
-  // photos reliably) and fall back to <img> + object URL. Do NOT set
-  // crossOrigin on blob URLs — some mobile browsers reject blob loads then.
-  if (typeof src !== 'string' && 'createImageBitmap' in window) {
-    try {
-      const bmp = await createImageBitmap(src, { imageOrientation: 'from-image' } as ImageBitmapOptions);
-      const canvas = newCanvas(bmp.width, bmp.height);
-      ctx2d(canvas).drawImage(bmp, 0, 0);
-      bmp.close?.();
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      return await new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Failed to decode image'));
-        img.src = dataUrl;
-      });
-    } catch {
-      // fall through to object URL path
-    }
-  }
-  const url = typeof src === 'string' ? src : URL.createObjectURL(src);
-  try {
+  // Read the file as a data URL first (works reliably on mobile browsers,
+  // including large photos where object-URL <img> loads sometimes fail
+  // silently). Then decode via <img>. Downscale huge images so a single 12MP
+  // phone photo doesn't stall OCR.
+  const MAX_DIM = 2400;
+
+  const asDataUrl = async (): Promise<string> => {
+    if (typeof src === 'string') return src;
+    return await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error('Could not read file'));
+      r.readAsDataURL(src);
+    });
+  };
+
+  const decode = async (url: string): Promise<HTMLImageElement> => {
     return await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
+      img.decoding = 'async';
       img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`Unsupported or corrupt image (${typeof src === 'string' ? src : (src as File).type || 'unknown type'})`));
+      img.onerror = () => {
+        const type = typeof src === 'string' ? 'url' : ((src as File).type || 'unknown type');
+        reject(new Error(`Unsupported or corrupt image (${type})`));
+      };
       img.src = url;
     });
-  } finally {
-    if (typeof src !== 'string') {
-      setTimeout(() => URL.revokeObjectURL(url), 5_000);
-    }
-  }
+  };
+
+  const dataUrl = await asDataUrl();
+  const img = await decode(dataUrl);
+
+  const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
+  if (maxSide <= MAX_DIM) return img;
+
+  // Downscale via canvas -> new HTMLImageElement (keeps existing pipeline API).
+  const scale = MAX_DIM / maxSide;
+  const c = newCanvas(img.naturalWidth * scale, img.naturalHeight * scale);
+  const g = ctx2d(c);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(img, 0, 0, c.width, c.height);
+  return await decode(c.toDataURL('image/jpeg', 0.9));
 }
 
 // ---------------------------------------------------------------------------
