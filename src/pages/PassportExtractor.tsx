@@ -128,6 +128,9 @@ const PassportExtractor = () => {
           error: err instanceof Error ? err.message : String(err),
         } : r));
       }
+      // Yield to the browser between files so the UI stays responsive and
+      // the OCR worker gets a tick to clean up before the next image.
+      await new Promise(res => setTimeout(res, 30));
     }
     try { await worker.terminate(); } catch { /* noop */ }
     setIsProcessing(false);

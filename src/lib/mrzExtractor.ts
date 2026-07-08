@@ -79,7 +79,7 @@ async function loadImage(src: File | string): Promise<HTMLImageElement> {
   // including large photos where object-URL <img> loads sometimes fail
   // silently). Then decode via <img>. Downscale huge images so a single 12MP
   // phone photo doesn't stall OCR.
-  const MAX_DIM = 2400;
+  const MAX_DIM = 2000;
 
   const asDataUrl = async (): Promise<string> => {
     if (typeof src === 'string') return src;
@@ -229,7 +229,7 @@ function candidateBands(img: HTMLImageElement): { name: string; canvas: HTMLCanv
   const H = img.naturalHeight;
   const list: { name: string; band: { x: number; y: number; w: number; h: number } }[] = [];
   list.push({ name: 'auto', band: detectMrzBand(img) });
-  for (const frac of [0.14, 0.18, 0.22, 0.28, 0.34]) {
+  for (const frac of [0.18, 0.26]) {
     const h = Math.round(H * frac);
     list.push({ name: `bottom-${Math.round(frac * 100)}`, band: { x: 0, y: H - h, w: W, h } });
   }
@@ -691,80 +691,74 @@ export async function extractPassportMrz(
 
     const bands = candidateBands(img);
 
-    for (let i = 0; i < STRATEGIES.length; i++) {
-      const strat = STRATEGIES[i];
-      report(0.2 + (i / STRATEGIES.length) * 0.7, `OCR: ${strat.name}`);
+    // Iterate (band, strategy) pairs in priority order. The auto-detected
+    // band with the fastest strategy is tried first; we exit the moment we
+    // get a parse with valid ICAO checksums so bulk runs stay fast.
+    const totalPairs = bands.length * STRATEGIES.length;
+    let pairIdx = 0;
+    outer: for (const b of bands) {
+      for (const strat of STRATEGIES) {
+        pairIdx++;
+        report(0.2 + (pairIdx / totalPairs) * 0.7, `OCR: ${strat.name} [${b.name}]`);
 
-      // Try each candidate band with this preprocessing strategy; keep the
-      // OCR output most resembling an MRZ block.
-      let rawText = '';
-      let bestScore = -1;
-      let bestBand = '';
-      let preErr: string | undefined;
-      for (const b of bands) {
-        let processed: HTMLCanvasElement;
-        try {
-          processed = strat.run(b.canvas);
-        } catch (err) {
-          preErr = `preprocess failed: ${err instanceof Error ? err.message : String(err)}`;
-          continue;
-        }
+        let processed: HTMLCanvasElement | null = null;
         let text = '';
         try {
+          processed = strat.run(b.canvas);
           const r = await worker.recognize(processed);
           text = r.data.text ?? '';
         } catch (err) {
-          preErr = `ocr failed: ${err instanceof Error ? err.message : String(err)}`;
+          attempts.push({
+            strategy: `${strat.name} [${b.name}]`,
+            rawText: '',
+            parsed: false,
+            checksumsValid: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          continue;
+        } finally {
+          // Free the processed (up to 3x-upscaled) canvas immediately so a
+          // 200-file bulk run does not accumulate hundreds of MB of bitmaps.
+          if (processed) { processed.width = 0; processed.height = 0; }
+        }
+
+        if (looksLikeMrz(text) > (looksLikeMrz(lastRaw) || -1)) lastRaw = text;
+
+        const picked = pickMrzLines(text);
+        if (!picked) {
+          attempts.push({
+            strategy: `${strat.name} [${b.name}]`,
+            rawText: text,
+            parsed: false,
+            checksumsValid: false,
+            error: 'could not find two 44-char MRZ lines',
+          });
           continue;
         }
-        const sc = looksLikeMrz(text);
-        if (sc > bestScore) { bestScore = sc; rawText = text; bestBand = b.name; }
-      }
-      if (bestScore < 0) {
+        const line1 = repairLine1(picked[0]);
+        const line2 = repairLine2(picked[1]);
+        const parsed = tryParse(line1, line2);
         attempts.push({
-          strategy: strat.name,
-          rawText: '',
-          parsed: false,
-          checksumsValid: false,
-          error: preErr ?? 'no band produced OCR output',
+          strategy: `${strat.name} [${b.name}]`,
+          rawText: `${line1}\n${line2}`,
+          parsed: parsed.ok,
+          checksumsValid: parsed.checksumsValid,
+          error: parsed.error,
         });
-        continue;
-      }
-      lastRaw = rawText;
-
-      const picked = pickMrzLines(rawText);
-      if (!picked) {
-        attempts.push({
-          strategy: `${strat.name} [${bestBand}]`,
-          rawText,
-          parsed: false,
-          checksumsValid: false,
-          error: 'could not find two 44-char MRZ lines',
-        });
-        continue;
-      }
-      const line1 = repairLine1(picked[0]);
-      const line2 = repairLine2(picked[1]);
-
-      const parsed = tryParse(line1, line2);
-      attempts.push({
-        strategy: `${strat.name} [${bestBand}]`,
-        rawText: `${line1}\n${line2}`,
-        parsed: parsed.ok,
-        checksumsValid: parsed.checksumsValid,
-        error: parsed.error,
-      });
-
-      if (parsed.ok && parsed.data) {
-        if (parsed.checksumsValid) {
-          bestResult = { data: parsed.data, rawText: `${line1}\n${line2}`, checksumsValid: true };
-          break;
-        }
-        if (!bestResult) {
-          bestResult = { data: parsed.data, rawText: `${line1}\n${line2}`, checksumsValid: false };
+        if (parsed.ok && parsed.data) {
+          if (parsed.checksumsValid) {
+            bestResult = { data: parsed.data, rawText: `${line1}\n${line2}`, checksumsValid: true };
+            break outer;
+          }
+          if (!bestResult) {
+            bestResult = { data: parsed.data, rawText: `${line1}\n${line2}`, checksumsValid: false };
+          }
         }
       }
     }
+
+    // Release source band canvases before returning to the caller.
+    for (const b of bands) { b.canvas.width = 0; b.canvas.height = 0; }
 
     report(0.95, 'Finalizing');
 
