@@ -726,6 +726,11 @@ export async function extractPassportMrz(
 
     let bestResult: { data: PassportData; rawText: string; checksumsValid: boolean } | null = null;
     let lastRaw = '';
+    // Collect every successful parse so we can majority-vote the surname/
+    // givenName across strategies. This defeats single-character OCR misreads
+    // (e.g. M→R in "MINDA" → "RINDA") that still pass ICAO checksums when
+    // only one strategy runs.
+    const validParses: { data: PassportData; rawText: string; checksumsValid: boolean }[] = [];
 
     const bands = candidateBands(img);
 
@@ -784,12 +789,20 @@ export async function extractPassportMrz(
           error: parsed.error,
         });
         if (parsed.ok && parsed.data) {
-          if (parsed.checksumsValid) {
-            bestResult = { data: parsed.data, rawText: `${line1}\n${line2}`, checksumsValid: true };
-            break outer;
+          const entry = { data: parsed.data, rawText: `${line1}\n${line2}`, checksumsValid: parsed.checksumsValid };
+          validParses.push(entry);
+          if (!bestResult || (parsed.checksumsValid && !bestResult.checksumsValid)) {
+            bestResult = entry;
           }
-          if (!bestResult) {
-            bestResult = { data: parsed.data, rawText: `${line1}\n${line2}`, checksumsValid: false };
+          // Early exit: two valid-checksum parses that agree on surname+
+          // passport number. Cheap safety net vs. one-attempt exits.
+          if (parsed.checksumsValid) {
+            const agree = validParses.filter(
+              (v) => v.checksumsValid &&
+                v.data.surname === parsed.data!.surname &&
+                v.data.passportNumber === parsed.data!.passportNumber,
+            );
+            if (agree.length >= 2) { bestResult = entry; break outer; }
           }
         }
       }
@@ -799,6 +812,36 @@ export async function extractPassportMrz(
     for (const b of bands) { b.canvas.width = 0; b.canvas.height = 0; }
 
     report(0.95, 'Finalizing');
+
+    // Majority vote across all successful parses to pick the most reliable
+    // surname/givenName. Prefer entries with valid ICAO checksums.
+    if (validParses.length > 0) {
+      const pool = validParses.some(v => v.checksumsValid)
+        ? validParses.filter(v => v.checksumsValid)
+        : validParses;
+      const pick = (getter: (d: PassportData) => string) => {
+        const counts = new Map<string, number>();
+        for (const v of pool) {
+          const key = getter(v.data);
+          if (!key) continue;
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+        let best = '', bestN = 0;
+        for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
+        return best;
+      };
+      const base = bestResult ?? pool[0];
+      const voted: PassportData = {
+        passportNumber: pick(d => d.passportNumber) || base.data.passportNumber,
+        surname: pick(d => d.surname) || base.data.surname,
+        givenName: pick(d => d.givenName) || base.data.givenName,
+        nationality: pick(d => d.nationality) || base.data.nationality,
+        gender: (pick(d => d.gender) as PassportData['gender']) || base.data.gender,
+        dateOfBirth: pick(d => d.dateOfBirth) || base.data.dateOfBirth,
+        expiryDate: pick(d => d.expiryDate) || base.data.expiryDate,
+      };
+      bestResult = { data: voted, rawText: base.rawText, checksumsValid: base.checksumsValid };
+    }
 
     if (bestResult) {
       if (!bestResult.checksumsValid) warnings.push('One or more ICAO checksums did not validate.');
