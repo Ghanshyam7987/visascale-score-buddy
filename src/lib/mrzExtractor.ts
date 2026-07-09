@@ -75,7 +75,7 @@ async function mrzModelReachable(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 async function loadImage(src: File | string): Promise<HTMLImageElement> {
-  const MAX_DIM = 2000;
+  const MAX_DIM = 1600;
 
   const decode = async (url: string): Promise<HTMLImageElement> => {
     return await new Promise<HTMLImageElement>((resolve, reject) => {
