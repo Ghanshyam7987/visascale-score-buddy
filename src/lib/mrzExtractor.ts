@@ -385,6 +385,15 @@ type Strategy = { name: string; run: (band: HTMLCanvasElement) => HTMLCanvasElem
 
 const STRATEGIES: Strategy[] = [
   {
+    name: 'gray-only-2x',
+    run: (band) => {
+      const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
+      let gray = toGray(id.data);
+      gray = contrastStretch(gray);
+      return upscale(grayCanvas(band, gray), 2, true);
+    },
+  },
+  {
     name: 'gamma-adaptive-2x',
     run: (band) => {
       const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
@@ -418,15 +427,6 @@ const STRATEGIES: Strategy[] = [
       const win = Math.max(21, (Math.round(band.height / 5) | 1));
       gray = adaptiveThreshold(gray, band.width, band.height, win, 8);
       return upscale(grayCanvas(band, gray), 2, false);
-    },
-  },
-  {
-    name: 'gray-only-2x',
-    run: (band) => {
-      const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
-      let gray = toGray(id.data);
-      gray = contrastStretch(gray);
-      return upscale(grayCanvas(band, gray), 2, true);
     },
   },
 ];
