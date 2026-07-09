@@ -75,21 +75,7 @@ async function mrzModelReachable(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 async function loadImage(src: File | string): Promise<HTMLImageElement> {
-  // Read the file as a data URL first (works reliably on mobile browsers,
-  // including large photos where object-URL <img> loads sometimes fail
-  // silently). Then decode via <img>. Downscale huge images so a single 12MP
-  // phone photo doesn't stall OCR.
   const MAX_DIM = 2000;
-
-  const asDataUrl = async (): Promise<string> => {
-    if (typeof src === 'string') return src;
-    return await new Promise<string>((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result));
-      r.onerror = () => reject(new Error('Could not read file'));
-      r.readAsDataURL(src);
-    });
-  };
 
   const decode = async (url: string): Promise<HTMLImageElement> => {
     return await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -104,20 +90,72 @@ async function loadImage(src: File | string): Promise<HTMLImageElement> {
     });
   };
 
-  const dataUrl = await asDataUrl();
-  const img = await decode(dataUrl);
+  // Prefer createImageBitmap for File input — cheapest, most reliable path on
+  // mobile Chrome and it dodges the data-URL memory blow-up on 200-image runs.
+  let img: HTMLImageElement | null = null;
+  let sourceW = 0, sourceH = 0;
+  let bitmap: ImageBitmap | null = null;
 
-  const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
-  if (maxSide <= MAX_DIM) return img;
+  if (typeof src !== 'string' && typeof createImageBitmap === 'function') {
+    try {
+      bitmap = await createImageBitmap(src);
+      sourceW = bitmap.width;
+      sourceH = bitmap.height;
+    } catch {
+      bitmap = null;
+    }
+  }
 
-  // Downscale via canvas -> new HTMLImageElement (keeps existing pipeline API).
-  const scale = MAX_DIM / maxSide;
-  const c = newCanvas(img.naturalWidth * scale, img.naturalHeight * scale);
+  if (!bitmap) {
+    // Fallback: blob URL first (streams, low memory), data URL as last resort.
+    const blobUrl = typeof src === 'string' ? null : URL.createObjectURL(src);
+    try {
+      if (blobUrl) {
+        try {
+          img = await decode(blobUrl);
+        } catch {
+          // FileReader → data URL fallback (some Android WebViews refuse blob:).
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(String(r.result));
+            r.onerror = () => reject(new Error('Could not read file'));
+            r.readAsDataURL(src as File);
+          });
+          img = await decode(dataUrl);
+        }
+      } else {
+        img = await decode(src as string);
+      }
+    } finally {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    }
+    sourceW = img!.naturalWidth;
+    sourceH = img!.naturalHeight;
+  }
+
+  const maxSide = Math.max(sourceW, sourceH);
+  const scale = maxSide > MAX_DIM ? MAX_DIM / maxSide : 1;
+  const outW = Math.max(1, Math.round(sourceW * scale));
+  const outH = Math.max(1, Math.round(sourceH * scale));
+
+  // No resize needed and we already have an <img> — hand it back directly.
+  if (!bitmap && scale === 1 && img) return img;
+
+  // Draw (bitmap or img) into a canvas, then re-decode as a small JPEG so the
+  // rest of the pipeline keeps its HTMLImageElement contract.
+  const c = newCanvas(outW, outH);
   const g = ctx2d(c);
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = 'high';
-  g.drawImage(img, 0, 0, c.width, c.height);
-  return await decode(c.toDataURL('image/jpeg', 0.9));
+  if (bitmap) {
+    g.drawImage(bitmap, 0, 0, outW, outH);
+    bitmap.close();
+  } else if (img) {
+    g.drawImage(img, 0, 0, outW, outH);
+  }
+  const jpeg = c.toDataURL('image/jpeg', 0.9);
+  c.width = 0; c.height = 0;
+  return await decode(jpeg);
 }
 
 // ---------------------------------------------------------------------------
