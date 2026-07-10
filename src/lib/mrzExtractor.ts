@@ -157,9 +157,25 @@ async function loadImage(src: File | string): Promise<HTMLImageElement> {
   } else if (img) {
     g.drawImage(img, 0, 0, outW, outH);
   }
-  const jpeg = c.toDataURL('image/jpeg', 0.9);
-  c.width = 0; c.height = 0;
-  return await decode(jpeg);
+  // Prefer toBlob → blob URL: mobile Chrome can silently return an empty /
+  // undecodable data URL from toDataURL when the canvas is large (>~2000px).
+  const blob: Blob | null = await new Promise((resolve) => {
+    try { c.toBlob((b) => resolve(b), 'image/jpeg', 0.9); }
+    catch { resolve(null); }
+  });
+  try {
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      try { return await decode(url); }
+      finally { URL.revokeObjectURL(url); }
+    }
+    // Last-ditch fallback to data URL (small images only).
+    const jpeg = c.toDataURL('image/jpeg', 0.9);
+    if (jpeg && jpeg.length > 32) return await decode(jpeg);
+    throw new Error('Canvas encode failed');
+  } finally {
+    c.width = 0; c.height = 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
