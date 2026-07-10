@@ -75,7 +75,11 @@ async function mrzModelReachable(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 async function loadImage(src: File | string): Promise<HTMLImageElement> {
-  const MAX_DIM = 1600;
+  // MRZ characters are ~2mm tall on a 125mm passport — on a downscaled 1600px
+  // image the MRZ band is often <180px, which Tesseract cannot read
+  // reliably. 2200 preserves enough detail on typical 3-6 MP phone shots
+  // while still bounding memory (~19 MB per RGBA canvas).
+  const MAX_DIM = 2200;
 
   const decode = async (url: string): Promise<HTMLImageElement> => {
     return await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -267,7 +271,7 @@ function candidateBands(img: HTMLImageElement): { name: string; canvas: HTMLCanv
   const H = img.naturalHeight;
   const list: { name: string; band: { x: number; y: number; w: number; h: number } }[] = [];
   list.push({ name: 'auto', band: detectMrzBand(img) });
-  for (const frac of [0.18, 0.26]) {
+  for (const frac of [0.18, 0.24, 0.30]) {
     const h = Math.round(H * frac);
     list.push({ name: `bottom-${Math.round(frac * 100)}`, band: { x: 0, y: H - h, w: W, h } });
   }
@@ -800,6 +804,7 @@ export async function extractPassportMrz(
             const agree = validParses.filter(
               (v) => v.checksumsValid &&
                 v.data.surname === parsed.data!.surname &&
+                v.data.givenName === parsed.data!.givenName &&
                 v.data.passportNumber === parsed.data!.passportNumber,
             );
             if (agree.length >= 2) { bestResult = entry; break outer; }
