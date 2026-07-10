@@ -271,7 +271,7 @@ function candidateBands(img: HTMLImageElement): { name: string; canvas: HTMLCanv
   const H = img.naturalHeight;
   const list: { name: string; band: { x: number; y: number; w: number; h: number } }[] = [];
   list.push({ name: 'auto', band: detectMrzBand(img) });
-  for (const frac of [0.18, 0.26]) {
+  for (const frac of [0.18, 0.24, 0.30]) {
     const h = Math.round(H * frac);
     list.push({ name: `bottom-${Math.round(frac * 100)}`, band: { x: 0, y: H - h, w: W, h } });
   }
