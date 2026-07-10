@@ -75,7 +75,11 @@ async function mrzModelReachable(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 async function loadImage(src: File | string): Promise<HTMLImageElement> {
-  const MAX_DIM = 1600;
+  // MRZ characters are ~2mm tall on a 125mm passport — on a downscaled 1600px
+  // image the MRZ band is often <180px, which Tesseract cannot read
+  // reliably. 2200 preserves enough detail on typical 3-6 MP phone shots
+  // while still bounding memory (~19 MB per RGBA canvas).
+  const MAX_DIM = 2200;
 
   const decode = async (url: string): Promise<HTMLImageElement> => {
     return await new Promise<HTMLImageElement>((resolve, reject) => {
