@@ -804,6 +804,7 @@ export async function extractPassportMrz(
             const agree = validParses.filter(
               (v) => v.checksumsValid &&
                 v.data.surname === parsed.data!.surname &&
+                v.data.givenName === parsed.data!.givenName &&
                 v.data.passportNumber === parsed.data!.passportNumber,
             );
             if (agree.length >= 2) { bestResult = entry; break outer; }
