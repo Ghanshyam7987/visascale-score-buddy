@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Upload, X, ScanFace, Loader2, FileSpreadsheet, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
-import { extractPassportMrz, createMrzWorker, type MrzResult, type PassportData } from '@/lib/mrzExtractor';
+import { type PassportData } from '@/lib/mrzExtractor';
+import { runMrzQueue } from '@/lib/mrzQueue';
 import { toast } from '@/hooks/use-toast';
 
 const MAX_FILES = 200;
@@ -35,9 +36,8 @@ const FIELDS: Array<{ key: keyof PassportData; label: string }> = [
 const PassportExtractor = () => {
   const [rows, setRows] = useState<Row[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [currentProgress, setCurrentProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState('');
+  const [overallDone, setOverallDone] = useState(0);
+  const [overallTotal, setOverallTotal] = useState(0);
   const cancelRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -86,56 +86,37 @@ const PassportExtractor = () => {
     if (rows.length === 0 || isProcessing) return;
     setIsProcessing(true);
     cancelRef.current = false;
-    const snapshot = rows;
-    setProgressLabel('Initializing OCR engine...');
-    let worker: Awaited<ReturnType<typeof createMrzWorker>> | null = null;
+    const jobs = rows
+      .filter(r => r.status !== 'done')
+      .map(r => ({ id: r.id, file: r.file }));
+    setOverallDone(0);
+    setOverallTotal(jobs.length);
     try {
-      worker = await createMrzWorker();
+      await runMrzQueue(jobs, {
+        signal: { get cancelled() { return cancelRef.current; } },
+        onOverall: (done, total) => {
+          setOverallDone(done);
+          setOverallTotal(total);
+        },
+        onUpdate: (u) => {
+          setRows(prev => prev.map(r => {
+            if (r.id !== u.id) return r;
+            if (u.status === 'processing') return { ...r, status: 'processing', error: undefined };
+            if (u.status === 'done' && u.result?.data) {
+              return { ...r, status: 'done', data: u.result.data, rawMrz: u.result.rawMrz };
+            }
+            return { ...r, status: 'error', error: u.error || 'MRZ not found', rawMrz: u.result?.rawMrz };
+          }));
+        },
+      });
     } catch (err) {
       toast({
-        title: 'OCR engine failed to load',
+        title: 'OCR engine failed',
         description: err instanceof Error ? err.message : String(err),
         variant: 'destructive',
       });
-      setIsProcessing(false);
-      return;
     }
-    for (let i = 0; i < snapshot.length; i++) {
-      if (cancelRef.current) break;
-      const row = snapshot[i];
-      if (row.status === 'done') continue;
-      setCurrentIndex(i);
-      setCurrentProgress(0);
-      setProgressLabel('Starting...');
-      setRows(prev => prev.map(r => r.id === row.id ? { ...r, status: 'processing', error: undefined } : r));
-      try {
-        const result: MrzResult = await extractPassportMrz(row.file, {
-          worker,
-          onProgress: (p, label) => {
-            setCurrentProgress(Math.round(p * 100));
-            setProgressLabel(label);
-          },
-        });
-        setRows(prev => prev.map(r => r.id === row.id ? (
-          result.ok && result.data
-            ? { ...r, status: 'done', data: result.data, rawMrz: result.rawMrz }
-            : { ...r, status: 'error', error: result.error || 'MRZ not found', rawMrz: result.rawMrz }
-        ) : r));
-      } catch (err) {
-        setRows(prev => prev.map(r => r.id === row.id ? {
-          ...r,
-          status: 'error',
-          error: err instanceof Error ? err.message : String(err),
-        } : r));
-      }
-      // Yield to the browser between files so the UI stays responsive and
-      // the OCR worker gets a tick to clean up before the next image.
-      await new Promise(res => setTimeout(res, 30));
-    }
-    try { await worker.terminate(); } catch { /* noop */ }
     setIsProcessing(false);
-    setProgressLabel('');
-    setCurrentProgress(0);
   }, [rows, isProcessing]);
 
   const stopExtraction = useCallback(() => {
@@ -160,7 +141,9 @@ const PassportExtractor = () => {
     XLSX.writeFile(wb, `passports_${stamp}.xlsx`);
   }, [rows]);
 
-  const overallPct = rows.length === 0 ? 0 : Math.round(((stats.done + stats.err) / rows.length) * 100);
+  const overallPct = overallTotal === 0
+    ? (rows.length === 0 ? 0 : Math.round(((stats.done + stats.err) / rows.length) * 100))
+    : Math.round((overallDone / overallTotal) * 100);
 
   return (
     <AppLayout>
@@ -239,13 +222,13 @@ const PassportExtractor = () => {
               <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-3">
                 <div className="flex justify-between text-xs">
                   <span className="font-medium">
-                    Processing {currentIndex + 1} of {rows.length}
+                    Processing {overallDone} of {overallTotal} (parallel)
                   </span>
                   <span className="text-muted-foreground">{overallPct}% overall</span>
                 </div>
                 <Progress value={overallPct} className="h-2" />
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {progressLabel} ({currentProgress}%) — {rows[currentIndex]?.file.name}
+                  Running multiple OCR workers in parallel — {stats.done} done, {stats.err} failed.
                 </p>
               </div>
             )}
