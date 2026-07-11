@@ -295,7 +295,10 @@ function candidateBands(img: HTMLImageElement): { name: string; canvas: HTMLCanv
   const H = img.naturalHeight;
   const list: { name: string; band: { x: number; y: number; w: number; h: number } }[] = [];
   list.push({ name: 'auto', band: detectMrzBand(img) });
-  for (const frac of [0.18, 0.24, 0.30]) {
+  // Two fallback crops covering the vast majority of passport layouts.
+  // Dropped from 3 → 2 to keep the ladder tight; auto-detect already handles
+  // the common case.
+  for (const frac of [0.22, 0.30]) {
     const h = Math.round(H * frac);
     list.push({ name: `bottom-${Math.round(frac * 100)}`, band: { x: 0, y: H - h, w: W, h } });
   }
@@ -824,17 +827,11 @@ export async function extractPassportMrz(
           if (!bestResult || (parsed.checksumsValid && !bestResult.checksumsValid)) {
             bestResult = entry;
           }
-          // Early exit: two valid-checksum parses that agree on surname+
-          // passport number. Cheap safety net vs. one-attempt exits.
-          if (parsed.checksumsValid) {
-            const agree = validParses.filter(
-              (v) => v.checksumsValid &&
-                v.data.surname === parsed.data!.surname &&
-                v.data.givenName === parsed.data!.givenName &&
-                v.data.passportNumber === parsed.data!.passportNumber,
-            );
-            if (agree.length >= 2) { bestResult = entry; break outer; }
-          }
+          // Progressive-stop: exit on the FIRST checksum-valid parse. All
+          // four ICAO checksums passing is extremely strong evidence — the
+          // odds of a random OCR misread producing four correct check
+          // digits is < 1 in 10,000. This is the single biggest speedup.
+          if (parsed.checksumsValid) { bestResult = entry; break outer; }
         }
       }
     }
