@@ -1,7 +1,7 @@
 /**
  * Controlled-concurrency MRZ extraction queue.
  *
- * Runs N Tesseract workers in parallel (N = clamp(hardwareConcurrency/2, 2, 4))
+ * Runs N Tesseract workers in parallel (N = clamp(hardwareConcurrency/3, 1, 3))
  * so a 200-image bulk run is bounded by CPU cores, not by a single serialized
  * OCR pipeline. Workers are pre-warmed once and reused across every file.
  */
@@ -28,21 +28,31 @@ export interface QueueOptions<T> {
   onUpdate: (u: QueueUpdate<T>) => void;
   onOverall?: (done: number, total: number) => void;
   signal?: { cancelled: boolean };
-  /** Hard per-file timeout in ms. Default 20s. */
+  /** Hard per-file timeout in ms. Default 45s. */
   timeoutMs?: number;
 }
 
 function pickConcurrency(hint?: number): number {
-  if (hint && hint > 0) return Math.min(6, Math.max(1, Math.floor(hint)));
+  if (hint && hint > 0) return Math.min(4, Math.max(1, Math.floor(hint)));
   const hw = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
     ? navigator.hardwareConcurrency
     : 4;
-  return Math.min(4, Math.max(2, Math.floor(hw / 2)));
+  // Mobile browsers often report 8 cores but throttle WebAssembly hard when
+  // 4 OCR workers run at once. 1-3 workers is faster in practice and avoids
+  // the all-files-failed pattern caused by decode/OCR contention.
+  return Math.min(3, Math.max(1, Math.floor(hw / 3)));
+}
+
+class QueueTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QueueTimeoutError';
+  }
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    const t = setTimeout(() => reject(new QueueTimeoutError(`${label} timed out after ${ms}ms`)), ms);
     p.then((v) => { clearTimeout(t); resolve(v); },
            (e) => { clearTimeout(t); reject(e); });
   });
@@ -54,7 +64,7 @@ export async function runMrzQueue<T>(
 ): Promise<void> {
   if (jobs.length === 0) return;
   const concurrency = pickConcurrency(opts.concurrency);
-  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const timeoutMs = opts.timeoutMs ?? 45_000;
 
   const workers: Worker[] = [];
   try {
@@ -68,9 +78,23 @@ export async function runMrzQueue<T>(
     let doneCount = 0;
     const total = jobs.length;
 
-    const runOne = async (worker: Worker) => {
+    const replaceWorker = async (deadWorker: Worker): Promise<Worker | null> => {
+      try { await deadWorker.terminate(); } catch { /* noop */ }
+      if (opts.signal?.cancelled) return null;
+      try {
+        const fresh = await createMrzWorker();
+        workers.push(fresh);
+        return fresh;
+      } catch {
+        return null;
+      }
+    };
+
+    const runOne = async (initialWorker: Worker) => {
+      let worker: Worker | null = initialWorker;
       while (true) {
         if (opts.signal?.cancelled) return;
+        if (!worker) return;
         const i = cursor++;
         if (i >= total) return;
         const job = jobs[i];
@@ -93,6 +117,12 @@ export async function runMrzQueue<T>(
             status: 'error',
             error: err instanceof Error ? err.message : String(err),
           });
+          if (err instanceof QueueTimeoutError && worker) {
+            // A timed-out recognize() keeps running inside Tesseract. Reusing
+            // that worker immediately can corrupt the next job, so kill it and
+            // continue the queue with a fresh worker.
+            worker = await replaceWorker(worker);
+          }
         } finally {
           doneCount++;
           opts.onOverall?.(doneCount, total);

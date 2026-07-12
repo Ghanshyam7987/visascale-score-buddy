@@ -74,116 +74,111 @@ async function mrzModelReachable(): Promise<boolean> {
 // Image loading
 // ---------------------------------------------------------------------------
 
-async function loadImage(src: File | string): Promise<HTMLImageElement> {
+type RasterSource = HTMLImageElement | HTMLCanvasElement;
+
+function rasterWidth(src: RasterSource): number {
+  return 'naturalWidth' in src ? src.naturalWidth : src.width;
+}
+
+function rasterHeight(src: RasterSource): number {
+  return 'naturalHeight' in src ? src.naturalHeight : src.height;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function decodeUrl(url: string, label: string): Promise<HTMLImageElement> {
+  return await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = async () => {
+      // `onload` fires before the browser has necessarily completed a full
+      // decode. Awaiting decode before drawing avoids sporadic mobile failures
+      // when the backing blob URL is revoked immediately after load.
+      try { await img.decode?.(); } catch { /* onload is enough on older WebViews */ }
+      resolve(img);
+    };
+    img.onerror = () => reject(new Error(`Unsupported or corrupt image (${label})`));
+    img.src = url;
+  });
+}
+
+function drawRasterToCanvas(src: RasterSource | ImageBitmap, sourceW: number, sourceH: number, maxDim: number): HTMLCanvasElement {
+  const maxSide = Math.max(sourceW, sourceH);
+  const scale = maxSide > maxDim ? maxDim / maxSide : 1;
+  const outW = Math.max(1, Math.round(sourceW * scale));
+  const outH = Math.max(1, Math.round(sourceH * scale));
+  const c = newCanvas(outW, outH);
+  const g = ctx2d(c);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, outW, outH);
+  return c;
+}
+
+async function loadImage(src: File | string): Promise<HTMLCanvasElement> {
   // 1800 keeps the MRZ band around ~220-260px tall on typical phone shots —
   // enough for the LSTM model — while cutting decode/OCR cost ~40% vs 2200
   // and staying well under mobile canvas limits.
   const MAX_DIM = 1800;
 
-  const decode = async (url: string): Promise<HTMLImageElement> => {
-    return await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.decoding = 'async';
-      img.onload = () => resolve(img);
-      img.onerror = () => {
-        const type = typeof src === 'string' ? 'url' : ((src as File).type || 'unknown type');
-        reject(new Error(`Unsupported or corrupt image (${type})`));
-      };
-      img.src = url;
-    });
-  };
+  if (typeof src === 'string') {
+    const img = await decodeUrl(src, 'url');
+    return drawRasterToCanvas(img, img.naturalWidth, img.naturalHeight, MAX_DIM);
+  }
 
-  // Prefer createImageBitmap for File input — cheapest, most reliable path on
-  // mobile Chrome and it dodges the data-URL memory blow-up on 200-image runs.
-  let img: HTMLImageElement | null = null;
-  let sourceW = 0, sourceH = 0;
-  let bitmap: ImageBitmap | null = null;
+  const label = src.type || 'selected image';
+  let lastError: unknown = null;
 
-  // Try HTMLImageElement path first. It is the most forgiving decoder across
-  // Android/iOS for progressive & CMYK JPEGs, where createImageBitmap often
-  // throws or returns black frames. Blob URL is kept alive until decode
-  // fully resolves — revoking too early was causing "Could not read file".
-  if (typeof src !== 'string') {
+  // Fast, zero-copy path. Keep the blob URL alive until AFTER the image has
+  // been drawn into our own canvas, so later MRZ crops never depend on a
+  // revoked URL or an OS-backed content URI.
+  for (let attempt = 0; attempt < 2; attempt++) {
     const blobUrl = URL.createObjectURL(src);
-    let decoded = false;
     try {
-      try {
-        img = await decode(blobUrl);
-        decoded = true;
-      } catch {
-        // Fallback 1: createImageBitmap (works for some formats that <img> chokes on).
-        if (typeof createImageBitmap === 'function') {
-          try {
-            bitmap = await createImageBitmap(src);
-            sourceW = bitmap.width;
-            sourceH = bitmap.height;
-            decoded = true;
-          } catch { /* try next */ }
-        }
-        if (!decoded) {
-          // Fallback 2: FileReader → data URL (Android WebView, some Safari builds).
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const r = new FileReader();
-            r.onload = () => resolve(String(r.result));
-            r.onerror = () => reject(new Error('Could not read file (FileReader failed)'));
-            r.readAsDataURL(src as File);
-          });
-          img = await decode(dataUrl);
-          decoded = true;
-        }
-      }
+      const img = await decodeUrl(blobUrl, label);
+      return drawRasterToCanvas(img, img.naturalWidth, img.naturalHeight, MAX_DIM);
+    } catch (err) {
+      lastError = err;
+      await delay(120 * (attempt + 1));
     } finally {
-      // Revoke AFTER decode has fully resolved. Revoking in an outer
-      // synchronous finally previously caused sporadic decode failures on
-      // mobile Chrome where img.decode() races with revocation.
       URL.revokeObjectURL(blobUrl);
     }
-    if (img) { sourceW = img.naturalWidth; sourceH = img.naturalHeight; }
-  } else {
-    img = await decode(src);
-    sourceW = img.naturalWidth;
-    sourceH = img.naturalHeight;
   }
 
-  const maxSide = Math.max(sourceW, sourceH);
-  const scale = maxSide > MAX_DIM ? MAX_DIM / maxSide : 1;
-  const outW = Math.max(1, Math.round(sourceW * scale));
-  const outH = Math.max(1, Math.round(sourceH * scale));
-
-  // No resize needed and we already have an <img> — hand it back directly.
-  if (!bitmap && scale === 1 && img) return img;
-
-  // Draw (bitmap or img) into a canvas, then re-decode as a small JPEG so the
-  // rest of the pipeline keeps its HTMLImageElement contract.
-  const c = newCanvas(outW, outH);
-  const g = ctx2d(c);
-  g.imageSmoothingEnabled = true;
-  g.imageSmoothingQuality = 'high';
-  if (bitmap) {
-    g.drawImage(bitmap, 0, 0, outW, outH);
-    bitmap.close();
-  } else if (img) {
-    g.drawImage(img, 0, 0, outW, outH);
+  // Fallback for decoders that support the file but not <img src=blob:...>.
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(src);
+      try { return drawRasterToCanvas(bitmap, bitmap.width, bitmap.height, MAX_DIM); }
+      finally { bitmap.close(); }
+    } catch (err) { lastError = err; }
   }
-  // Prefer toBlob → blob URL: mobile Chrome can silently return an empty /
-  // undecodable data URL from toDataURL when the canvas is large (>~2000px).
-  const blob: Blob | null = await new Promise((resolve) => {
-    try { c.toBlob((b) => resolve(b), 'image/jpeg', 0.9); }
-    catch { resolve(null); }
-  });
-  try {
-    if (blob) {
-      const url = URL.createObjectURL(blob);
-      try { return await decode(url); }
-      finally { URL.revokeObjectURL(url); }
+
+  // Last fallback: clone the file bytes into a fresh Blob. This avoids the old
+  // FileReader data-URL path that was failing on Android content providers and
+  // could create huge base64 strings during bulk uploads.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let url = '';
+    try {
+      const clone = new Blob([await src.arrayBuffer()], { type: src.type || 'image/jpeg' });
+      url = URL.createObjectURL(clone);
+      const img = await decodeUrl(url, label);
+      return drawRasterToCanvas(img, img.naturalWidth, img.naturalHeight, MAX_DIM);
+    } catch (err) {
+      lastError = err;
+      await delay(180 * (attempt + 1));
+    } finally {
+      if (url) URL.revokeObjectURL(url);
     }
-    // Last-ditch fallback to data URL (small images only).
-    const jpeg = c.toDataURL('image/jpeg', 0.9);
-    if (jpeg && jpeg.length > 32) return await decode(jpeg);
-    throw new Error('Canvas encode failed');
-  } finally {
-    c.width = 0; c.height = 0;
   }
+
+  throw new Error(
+    lastError instanceof Error && lastError.message
+      ? `Could not read file: ${lastError.message}`
+      : 'Could not read file. Please choose the image again from device storage.',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -223,9 +218,9 @@ function writeGray(target: ImageData, gray: Uint8ClampedArray): void {
 // MRZ band detection
 // ---------------------------------------------------------------------------
 
-function detectMrzBand(img: HTMLImageElement): { x: number; y: number; w: number; h: number } {
-  const W = img.naturalWidth;
-  const H = img.naturalHeight;
+function detectMrzBand(img: RasterSource): { x: number; y: number; w: number; h: number } {
+  const W = rasterWidth(img);
+  const H = rasterHeight(img);
   const searchH = Math.round(H * 0.4);
   const searchY = H - searchH;
 
@@ -284,15 +279,15 @@ function detectMrzBand(img: HTMLImageElement): { x: number; y: number; w: number
   return { x: 0, y: bandY, w: W, h: Math.min(H - bandY, bandH) };
 }
 
-function cropBand(img: HTMLImageElement, band: { x: number; y: number; w: number; h: number }): HTMLCanvasElement {
+function cropBand(img: RasterSource, band: { x: number; y: number; w: number; h: number }): HTMLCanvasElement {
   const c = newCanvas(band.w, band.h);
   ctx2d(c).drawImage(img, band.x, band.y, band.w, band.h, 0, 0, band.w, band.h);
   return c;
 }
 
-function candidateBands(img: HTMLImageElement): { name: string; canvas: HTMLCanvasElement }[] {
-  const W = img.naturalWidth;
-  const H = img.naturalHeight;
+function candidateBands(img: RasterSource): { name: string; canvas: HTMLCanvasElement }[] {
+  const W = rasterWidth(img);
+  const H = rasterHeight(img);
   const list: { name: string; band: { x: number; y: number; w: number; h: number } }[] = [];
   list.push({ name: 'auto', band: detectMrzBand(img) });
   // Two fallback crops covering the vast majority of passport layouts.
@@ -766,6 +761,8 @@ export async function extractPassportMrz(
     const validParses: { data: PassportData; rawText: string; checksumsValid: boolean }[] = [];
 
     const bands = candidateBands(img);
+    img.width = 0;
+    img.height = 0;
 
     // Iterate (band, strategy) pairs in priority order. The auto-detected
     // band with the fastest strategy is tried first; we exit the moment we
@@ -900,7 +897,7 @@ export async function extractPassportMrz(
       modelUsed: 'mrz',
       attempts,
       warnings,
-      error: err instanceof Error ? (err.stack || err.message) : String(err),
+      error: err instanceof Error ? err.message : String(err),
     };
   } finally {
     if (ownedWorker) {
