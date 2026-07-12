@@ -77,15 +77,11 @@ async function mrzModelReachable(): Promise<boolean> {
 type RasterSource = HTMLImageElement | HTMLCanvasElement;
 
 function rasterWidth(src: RasterSource): number {
-  return typeof HTMLCanvasElement !== 'undefined' && src instanceof HTMLCanvasElement
-    ? src.width
-    : src.naturalWidth;
+  return 'naturalWidth' in src ? src.naturalWidth : src.width;
 }
 
 function rasterHeight(src: RasterSource): number {
-  return typeof HTMLCanvasElement !== 'undefined' && src instanceof HTMLCanvasElement
-    ? src.height
-    : src.naturalHeight;
+  return 'naturalHeight' in src ? src.naturalHeight : src.height;
 }
 
 function delay(ms: number): Promise<void> {
