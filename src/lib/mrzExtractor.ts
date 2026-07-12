@@ -77,11 +77,15 @@ async function mrzModelReachable(): Promise<boolean> {
 type RasterSource = HTMLImageElement | HTMLCanvasElement;
 
 function rasterWidth(src: RasterSource): number {
-  return src instanceof HTMLCanvasElement ? src.width : src.naturalWidth;
+  return typeof HTMLCanvasElement !== 'undefined' && src instanceof HTMLCanvasElement
+    ? src.width
+    : src.naturalWidth;
 }
 
 function rasterHeight(src: RasterSource): number {
-  return src instanceof HTMLCanvasElement ? src.height : src.naturalHeight;
+  return typeof HTMLCanvasElement !== 'undefined' && src instanceof HTMLCanvasElement
+    ? src.height
+    : src.naturalHeight;
 }
 
 function delay(ms: number): Promise<void> {
@@ -761,6 +765,8 @@ export async function extractPassportMrz(
     const validParses: { data: PassportData; rawText: string; checksumsValid: boolean }[] = [];
 
     const bands = candidateBands(img);
+    img.width = 0;
+    img.height = 0;
 
     // Iterate (band, strategy) pairs in priority order. The auto-detected
     // band with the fastest strategy is tried first; we exit the moment we
