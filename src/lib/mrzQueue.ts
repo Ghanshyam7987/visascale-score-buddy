@@ -1,7 +1,7 @@
 /**
  * Controlled-concurrency MRZ extraction queue.
  *
- * Runs N Tesseract workers in parallel (N = clamp(hardwareConcurrency/2, 2, 4))
+ * Runs N Tesseract workers in parallel (N = clamp(hardwareConcurrency/2, 1, 3))
  * so a 200-image bulk run is bounded by CPU cores, not by a single serialized
  * OCR pipeline. Workers are pre-warmed once and reused across every file.
  */
@@ -28,16 +28,19 @@ export interface QueueOptions<T> {
   onUpdate: (u: QueueUpdate<T>) => void;
   onOverall?: (done: number, total: number) => void;
   signal?: { cancelled: boolean };
-  /** Hard per-file timeout in ms. Default 20s. */
+  /** Hard per-file timeout in ms. Default 45s. */
   timeoutMs?: number;
 }
 
 function pickConcurrency(hint?: number): number {
-  if (hint && hint > 0) return Math.min(6, Math.max(1, Math.floor(hint)));
+  if (hint && hint > 0) return Math.min(4, Math.max(1, Math.floor(hint)));
   const hw = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
     ? navigator.hardwareConcurrency
     : 4;
-  return Math.min(4, Math.max(2, Math.floor(hw / 2)));
+  // Mobile browsers often report 8 cores but throttle WebAssembly hard when
+  // 4 OCR workers run at once. 1-3 workers is faster in practice and avoids
+  // the all-files-failed pattern caused by decode/OCR contention.
+  return Math.min(3, Math.max(1, Math.floor(hw / 3)));
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -54,7 +57,7 @@ export async function runMrzQueue<T>(
 ): Promise<void> {
   if (jobs.length === 0) return;
   const concurrency = pickConcurrency(opts.concurrency);
-  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const timeoutMs = opts.timeoutMs ?? 45_000;
 
   const workers: Worker[] = [];
   try {
