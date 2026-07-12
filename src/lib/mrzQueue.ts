@@ -81,9 +81,13 @@ export async function runMrzQueue<T>(
     const replaceWorker = async (deadWorker: Worker): Promise<Worker | null> => {
       try { await deadWorker.terminate(); } catch { /* noop */ }
       if (opts.signal?.cancelled) return null;
-      const fresh = await createMrzWorker();
-      workers.push(fresh);
-      return fresh;
+      try {
+        const fresh = await createMrzWorker();
+        workers.push(fresh);
+        return fresh;
+      } catch {
+        return null;
+      }
     };
 
     const runOne = async (initialWorker: Worker) => {
