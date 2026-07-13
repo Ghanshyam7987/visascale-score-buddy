@@ -28,7 +28,7 @@ export interface QueueOptions<T> {
   onUpdate: (u: QueueUpdate<T>) => void;
   onOverall?: (done: number, total: number) => void;
   signal?: { cancelled: boolean };
-  /** Hard per-file timeout in ms. Default 45s. */
+  /** Hard per-file timeout in ms. Default 120s. */
   timeoutMs?: number;
 }
 
@@ -67,7 +67,7 @@ export async function runMrzQueue<T>(
 ): Promise<void> {
   if (jobs.length === 0) return;
   const concurrency = pickConcurrency(opts.concurrency);
-  const timeoutMs = opts.timeoutMs ?? 45_000;
+  const timeoutMs = opts.timeoutMs ?? 120_000;
 
   const workers: Worker[] = [];
   try {

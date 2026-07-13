@@ -60,6 +60,21 @@ const MRZ_LANG_PATH = '/tessdata';
 const MRZ_TRAINEDDATA_URL = '/tessdata/mrz.traineddata';
 const MRZ_CORE_PATH = '/tesseract/tesseract-core-lstm.wasm.js';
 const OCR_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
+const TEXT_ONLY_OUTPUT = {
+  text: true,
+  blocks: false,
+  layoutBlocks: false,
+  hocr: false,
+  tsv: false,
+  box: false,
+  unlv: false,
+  osd: false,
+  pdf: false,
+  imageColor: false,
+  imageGrey: false,
+  imageBinary: false,
+  debug: false,
+};
 
 async function mrzModelReachable(): Promise<boolean> {
   try {
@@ -311,10 +326,133 @@ function fitCanvas(src: HTMLCanvasElement, maxW: number, maxH: number): HTMLCanv
   return out;
 }
 
+function detectTextLineRects(src: HTMLCanvasElement): Array<{ y: number; h: number; score: number }> {
+  const W = src.width;
+  const H = src.height;
+  const g = ctx2d(src);
+  const id = g.getImageData(0, 0, W, H);
+  const gray = toGray(id.data);
+
+  let sum = 0;
+  for (let i = 0; i < gray.length; i++) sum += gray[i];
+  const mean = sum / gray.length;
+  let variance = 0;
+  for (let i = 0; i < gray.length; i++) {
+    const d = gray[i] - mean;
+    variance += d * d;
+  }
+  const std = Math.sqrt(variance / gray.length);
+  const cutoff = Math.max(25, mean - Math.max(18, std * 0.35));
+
+  const density = new Float32Array(H);
+  const x0 = Math.round(W * 0.02);
+  const x1 = Math.round(W * 0.98);
+  const rowW = Math.max(1, x1 - x0);
+  for (let y = 0; y < H; y++) {
+    let dark = 0;
+    const off = y * W;
+    for (let x = x0; x < x1; x++) if (gray[off + x] < cutoff) dark++;
+    density[y] = dark / rowW;
+  }
+
+  const smooth = new Float32Array(H);
+  const radius = Math.max(2, Math.round(H * 0.018));
+  let peak = 0;
+  for (let y = 0; y < H; y++) {
+    let s = 0, n = 0;
+    for (let dy = -radius; dy <= radius; dy++) {
+      const yy = y + dy;
+      if (yy >= 0 && yy < H) { s += density[yy]; n++; }
+    }
+    smooth[y] = s / n;
+    if (smooth[y] > peak) peak = smooth[y];
+  }
+
+  const threshold = Math.max(0.012, peak * 0.26);
+  const raw: Array<{ y: number; h: number; score: number }> = [];
+  let start = -1;
+  for (let y = 0; y < H; y++) {
+    if (smooth[y] >= threshold) {
+      if (start < 0) start = y;
+    } else if (start >= 0) {
+      const end = y;
+      const h = end - start;
+      if (h >= Math.max(5, H * 0.025)) {
+        let score = 0;
+        for (let yy = start; yy < end; yy++) score += smooth[yy];
+        raw.push({ y: start, h, score });
+      }
+      start = -1;
+    }
+  }
+  if (start >= 0) {
+    const h = H - start;
+    if (h >= Math.max(5, H * 0.025)) {
+      let score = 0;
+      for (let yy = start; yy < H; yy++) score += smooth[yy];
+      raw.push({ y: start, h, score });
+    }
+  }
+
+  const merged: Array<{ y: number; h: number; score: number }> = [];
+  const gapLimit = Math.max(5, Math.round(H * 0.04));
+  for (const seg of raw) {
+    const prev = merged[merged.length - 1];
+    if (prev && seg.y - (prev.y + prev.h) <= gapLimit) {
+      const end = Math.max(prev.y + prev.h, seg.y + seg.h);
+      prev.score += seg.score;
+      prev.h = end - prev.y;
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+
+  return merged
+    .filter((r) => r.h <= H * 0.42)
+    .sort((a, b) => {
+      const ay = a.y + a.h / 2;
+      const by = b.y + b.h / 2;
+      return by - ay || b.score - a.score;
+    })
+    .slice(0, 2)
+    .sort((a, b) => a.y - b.y);
+}
+
+function compactMrzBand(src: HTMLCanvasElement): HTMLCanvasElement | null {
+  const rects = detectTextLineRects(src);
+  if (rects.length < 2) return null;
+
+  const targetW = Math.min(1320, src.width);
+  const lineH = 78;
+  const gap = 12;
+  const out = newCanvas(targetW, lineH * 2 + gap);
+  const g = ctx2d(out);
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, out.width, out.height);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+
+  rects.forEach((r, i) => {
+    const pad = Math.max(8, Math.round(r.h * 0.9));
+    const sy = Math.max(0, r.y - pad);
+    const sh = Math.min(src.height - sy, r.h + pad * 2);
+    const dy = i * (lineH + gap);
+    g.drawImage(src, 0, sy, src.width, sh, 0, dy, targetW, lineH);
+  });
+  return out;
+}
+
 function prepareBandForOcr(src: HTMLCanvasElement): HTMLCanvasElement {
-  // 1320px is enough for 44 MRZ chars (~30px/char) but avoids multi-megapixel
-  // OCR canvases on Android WebView, the main source of bulk timeouts.
-  return fitCanvas(src, 1320, 320);
+  // First compact the band down to the two dense MRZ text rows. This removes
+  // signatures/stamps/blank page area and keeps mobile OCR below timeout.
+  const fitted = fitCanvas(src, 1320, 340);
+  const compact = compactMrzBand(fitted);
+  if (compact) {
+    fitted.width = 0;
+    fitted.height = 0;
+    return compact;
+  }
+  return fitted;
 }
 
 function candidateBands(img: RasterSource): { name: string; canvas: HTMLCanvasElement }[] {
@@ -483,18 +621,6 @@ const STRATEGIES: Strategy[] = [
       return upscale(grayCanvas(band, gray), 1.5, false);
     },
   },
-  {
-    name: 'gamma-dark-1.5x',
-    run: (band) => {
-      const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
-      let gray = toGray(id.data);
-      gray = gammaCorrect(gray, 0.8);
-      gray = contrastStretch(gray);
-      const win = Math.max(21, (Math.round(band.height / 5) | 1));
-      gray = adaptiveThreshold(gray, band.width, band.height, win, 8);
-      return upscale(grayCanvas(band, gray), 1.5, false);
-    },
-  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -511,11 +637,20 @@ async function createOcrWorker(): Promise<{ worker: Worker; modelUsed: 'mrz' }> 
     langPath: MRZ_LANG_PATH,
     corePath: MRZ_CORE_PATH,
     gzip: false,
-    cacheMethod: 'refresh',
+    cacheMethod: 'write',
+  } as never, {
+    load_system_dawg: '0',
+    load_freq_dawg: '0',
+    load_unambig_dawg: '0',
+    load_punc_dawg: '0',
+    load_number_dawg: '0',
+    load_bigram_dawg: '0',
   } as never);
   await w.setParameters({
     tessedit_char_whitelist: OCR_WHITELIST,
     tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+    preserve_interword_spaces: '0',
+    user_defined_dpi: '300',
   } as never);
   return { worker: w, modelUsed: 'mrz' };
 }
@@ -816,7 +951,7 @@ export async function extractPassportMrz(
         let text = '';
         try {
           processed = strat.run(b.canvas);
-          const r = await worker.recognize(processed);
+          const r = await worker.recognize(processed, {}, TEXT_ONLY_OUTPUT as never);
           text = r.data.text ?? '';
         } catch (err) {
           attempts.push({
