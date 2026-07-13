@@ -285,19 +285,57 @@ function cropBand(img: RasterSource, band: { x: number; y: number; w: number; h:
   return c;
 }
 
+function fitCanvas(src: HTMLCanvasElement, maxW: number, maxH: number): HTMLCanvasElement {
+  let sx = 0;
+  let sy = 0;
+  let sw = src.width;
+  let sh = src.height;
+
+  // Fallback bands are intentionally generous. Before OCR, trim tall bands to
+  // the lower MRZ zone so Tesseract does not spend 45s reading signatures,
+  // stamps, or blank page area above the two MRZ lines.
+  const maxSourceH = Math.max(80, Math.round(src.width * 0.22));
+  if (sh > maxSourceH) {
+    sy = sh - maxSourceH;
+    sh = maxSourceH;
+  }
+
+  const scale = Math.min(1, maxW / sw, maxH / sh);
+  const outW = Math.max(1, Math.round(sw * scale));
+  const outH = Math.max(1, Math.round(sh * scale));
+  const out = newCanvas(outW, outH);
+  const g = ctx2d(out);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, sx, sy, sw, sh, 0, 0, outW, outH);
+  return out;
+}
+
+function prepareBandForOcr(src: HTMLCanvasElement): HTMLCanvasElement {
+  // 1320px is enough for 44 MRZ chars (~30px/char) but avoids multi-megapixel
+  // OCR canvases on Android WebView, the main source of bulk timeouts.
+  return fitCanvas(src, 1320, 320);
+}
+
 function candidateBands(img: RasterSource): { name: string; canvas: HTMLCanvasElement }[] {
   const W = rasterWidth(img);
   const H = rasterHeight(img);
   const list: { name: string; band: { x: number; y: number; w: number; h: number } }[] = [];
   list.push({ name: 'auto', band: detectMrzBand(img) });
-  // Two fallback crops covering the vast majority of passport layouts.
-  // Dropped from 3 → 2 to keep the ladder tight; auto-detect already handles
-  // the common case.
-  for (const frac of [0.22, 0.30]) {
+  // Compact fallback crops. The previous 30% crop produced huge OCR canvases
+  // and often timed out on mobile. Indian passports keep TD3 MRZ in the lower
+  // band, so 16/22% is safer and faster.
+  for (const frac of [0.16, 0.22]) {
     const h = Math.round(H * frac);
     list.push({ name: `bottom-${Math.round(frac * 100)}`, band: { x: 0, y: H - h, w: W, h } });
   }
-  return list.map((c) => ({ name: c.name, canvas: cropBand(img, c.band) }));
+  return list.map((c) => {
+    const raw = cropBand(img, c.band);
+    const prepared = prepareBandForOcr(raw);
+    raw.width = 0;
+    raw.height = 0;
+    return { name: c.name, canvas: prepared };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -413,16 +451,16 @@ type Strategy = { name: string; run: (band: HTMLCanvasElement) => HTMLCanvasElem
 // parse, so >80% of clear passports never run beyond `gray-only-2x`.
 const STRATEGIES: Strategy[] = [
   {
-    name: 'gray-only-2x',
+    name: 'gray-fast-1x',
     run: (band) => {
       const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
       let gray = toGray(id.data);
       gray = contrastStretch(gray);
-      return upscale(grayCanvas(band, gray), 2, true);
+      return grayCanvas(band, gray);
     },
   },
   {
-    name: 'gamma-adaptive-2x',
+    name: 'adaptive-1x',
     run: (band) => {
       const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
       let gray = toGray(id.data);
@@ -430,11 +468,11 @@ const STRATEGIES: Strategy[] = [
       gray = contrastStretch(gray);
       const win = Math.max(15, (Math.round(band.height / 8) | 1));
       gray = adaptiveThreshold(gray, band.width, band.height, win, 10);
-      return upscale(grayCanvas(band, gray), 2, false);
+      return grayCanvas(band, gray);
     },
   },
   {
-    name: 'sharpen-adaptive-3x',
+    name: 'sharpen-1.5x',
     run: (band) => {
       const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
       let gray = toGray(id.data);
@@ -442,11 +480,11 @@ const STRATEGIES: Strategy[] = [
       gray = unsharp(gray, band.width, band.height, 1.2);
       const win = Math.max(19, (Math.round(band.height / 6) | 1));
       gray = adaptiveThreshold(gray, band.width, band.height, win, 12);
-      return upscale(grayCanvas(band, gray), 3, false);
+      return upscale(grayCanvas(band, gray), 1.5, false);
     },
   },
   {
-    name: 'gamma-dark-adaptive-2x',
+    name: 'gamma-dark-1.5x',
     run: (band) => {
       const id = ctx2d(band).getImageData(0, 0, band.width, band.height);
       let gray = toGray(id.data);
@@ -454,7 +492,7 @@ const STRATEGIES: Strategy[] = [
       gray = contrastStretch(gray);
       const win = Math.max(21, (Math.round(band.height / 5) | 1));
       gray = adaptiveThreshold(gray, band.width, band.height, win, 8);
-      return upscale(grayCanvas(band, gray), 2, false);
+      return upscale(grayCanvas(band, gray), 1.5, false);
     },
   },
 ];

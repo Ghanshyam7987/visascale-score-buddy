@@ -1,7 +1,7 @@
 /**
  * Controlled-concurrency MRZ extraction queue.
  *
- * Runs N Tesseract workers in parallel (N = clamp(hardwareConcurrency/3, 1, 3))
+ * Runs a small Tesseract worker pool in parallel (desktop 2, mobile 1)
  * so a 200-image bulk run is bounded by CPU cores, not by a single serialized
  * OCR pipeline. Workers are pre-warmed once and reused across every file.
  */
@@ -37,10 +37,13 @@ function pickConcurrency(hint?: number): number {
   const hw = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
     ? navigator.hardwareConcurrency
     : 4;
-  // Mobile browsers often report 8 cores but throttle WebAssembly hard when
-  // 4 OCR workers run at once. 1-3 workers is faster in practice and avoids
-  // the all-files-failed pattern caused by decode/OCR contention.
-  return Math.min(3, Math.max(1, Math.floor(hw / 3)));
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  // Tesseract WASM is memory-bound in mobile WebViews. Parallel OCR there can
+  // make every job time out; one reused worker is slower than desktop, but far
+  // more reliable. Desktop gets two workers for real bulk speedup.
+  if (isMobile) return 1;
+  return hw >= 6 ? 2 : 1;
 }
 
 class QueueTimeoutError extends Error {
